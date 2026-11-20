@@ -2,8 +2,8 @@ class Backlog < Formula
   desc "Live dashboard for agentic harness progress"
   homepage "https://github.com/simonski/backlog"
   url "https://github.com/simonski/backlog.git",
-      tag:      "v0.3.2",
-      revision: "a58c62836bed45f927c6f558ff20bc73291c8a73",
+      tag:      "v0.3.3",
+      revision: "150866622bf35660abf945f679f0a4fb624315e1",
       using:    :git
 
   depends_on "go" => :build

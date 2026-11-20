@@ -25,7 +25,8 @@ h3 { font-size: 1rem; line-height: 1.4; }
 .topbar { background: #131b28; border-bottom: 1px solid var(--border); }
 .topbar-inner, .page-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
 .topbar-inner { min-height: 4.2rem; }
-.brand { font-weight: 700; letter-spacing: -.025em; text-decoration: none; }
+.brand { display: inline-flex; align-items: center; gap: .55rem; font-weight: 700; letter-spacing: -.025em; text-decoration: none; }
+.brand img { display: block; }
 .connection, .total, .count { font-size: .875rem; }
 .connection { white-space: nowrap; color: var(--teal); }
 .connection::before { content: ""; display: inline-block; width: .48rem; height: .48rem; margin-right: .45rem; vertical-align: .1em; border-radius: 50%; background: currentColor; }

@@ -22,8 +22,8 @@ The harness sends an individual task report when it discovers work or when a tas
 
 ## Dashboard
 
-- The homepage lists active and inactive projects and links to each project's single-page task view. Project tabs provide direct navigation between unarchived projects. The homepage sorts unarchived projects by the time of their latest successful report, most recent first. Completed and inactive projects remain available.
-- The task view shows status, reported progress, and blocker notes. It visually de-emphasizes tasks marked **No longer needed** and labels them explicitly. An open dashboard reflects successful updates within three seconds under normal local operation.
+- The homepage lists active and inactive projects and links to each project's single-page task view. Project tabs provide direct navigation between unarchived projects. The homepage sorts unarchived projects by the time of their latest successful report, most recent first. Completed and inactive projects remain available. The header and browser favicon use the same stacked-task mark.
+- The task view shows status, reported progress, and blocker notes. Columns appear in this order: **Blocked**, **To do**, **Doing**, **Done**, and **No longer needed**. The view visually de-emphasizes tasks marked **No longer needed**. An open dashboard reflects successful updates within three seconds under normal local operation.
 - Active projects and tasks display an activity indicator. Newly reported or changed task cards briefly animate. The dashboard respects the browser's reduced-motion preference and shows the server's semantic version in the bottom-right corner.
 - People can archive and restore projects in the browser over loopback. Archived projects are accessible through an Archived view and stay out of the main list and tabs until restored. The server continues accepting reports for archived projects. Task changes come through the reporting CLI.
 

@@ -82,12 +82,21 @@ def verify(binary, upgrade_binary):
                 assert response.ok
                 expect(page.locator("main")).to_contain_text("Projects appear here")
                 expect(page.locator(".app-version")).to_have_text(f"v{version['server_version']}")
+                mark = page.get_by_role("link", name="Backlog", exact=True).locator("img")
+                expect(mark).to_be_visible()
+                page.wait_for_function('document.querySelector(".brand img").naturalWidth === 64')
+                favicon = page.locator('link[rel="icon"]').get_attribute("href")
+                icon = page.request.get(url + favicon)
+                assert icon.ok and icon.body().startswith(b"\x00\x00\x01\x00")
 
                 initial = report(binary, url, project, "task", "-id", "login", "-title", "Add sign-in")
                 card = page.locator("main").get_by_role("link", name="test-project", exact=False)
                 expect(card).to_be_visible(timeout=3000)
                 card.click()
                 expect(page.get_by_role("heading", name="test-project", exact=True)).to_be_visible()
+                expect(page.locator(".task-group h2")).to_have_text(
+                    ["Blocked 0", "To do 1", "Doing 0", "Done 0", "No longer needed 0"]
+                )
 
                 renamed = report(binary, url, subdir, "task", "-id", "login", "-title", "Add email sign-in",
                                  "-status", "blocked", "-blocker", "Waiting for test credentials", "-progress", "60")

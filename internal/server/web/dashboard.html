@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="backlog-build" content="{{.BuildID}}">
   <title>{{.Title}} · Backlog</title>
+  <link rel="icon" href="/favicon.ico">
   <link rel="stylesheet" href="/assets/dashboard.css">
   <script src="/assets/dashboard.js" defer></script>
 </head>
@@ -12,7 +13,10 @@
   <a class="skip-link" href="#content">Skip to content</a>
   <header class="topbar">
     <div class="shell topbar-inner">
-      <a class="brand" href="/">Backlog</a>
+      <a class="brand" href="/">
+        <img src="/assets/backlog-mark.png" alt="" width="32" height="32">
+        Backlog
+      </a>
       <span class="connection" id="connection" role="status">Live</span>
     </div>
   </header>

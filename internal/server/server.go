@@ -43,7 +43,9 @@ func Handler(store *storage.Store, buildID string) http.Handler {
 		panic(err)
 	}
 	mux := http.NewServeMux()
-	mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServerFS(assets)))
+	static := http.FileServerFS(assets)
+	mux.Handle("GET /assets/", http.StripPrefix("/assets/", static))
+	mux.Handle("GET /favicon.ico", static)
 	mux.HandleFunc("GET /api/version", app.version)
 	mux.HandleFunc("POST /api/reports", app.report)
 	mux.HandleFunc("GET /{$}", app.dashboard)
@@ -189,9 +191,9 @@ func (app server) dashboard(w http.ResponseWriter, r *http.Request) {
 
 func taskGroups(tasks []model.Task) []group {
 	groups := []group{
-		{Status: model.Doing, Label: "Doing"},
 		{Status: model.Blocked, Label: "Blocked"},
 		{Status: model.Todo, Label: "To do"},
+		{Status: model.Doing, Label: "Doing"},
 		{Status: model.Done, Label: "Done"},
 		{Status: "omitted", Label: "No longer needed"},
 	}

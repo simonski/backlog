@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,7 +9,8 @@ import (
 )
 
 func installSkill(args []string, contents []byte, out, diagnostics io.Writer) error {
-	flags := newFlags("install-skill", diagnostics, " [-dir SKILLS_DIRECTORY]")
+	flags := newFlags("install-skill", diagnostics, " [options]")
+	asJSON := flags.Bool("json", false, "print indented JSON")
 	directory := flags.String("dir", "", "skills directory (defaults to ~/.agents/skills)")
 	if err := parseFlags(flags, args); err != nil {
 		return err
@@ -19,10 +19,22 @@ func installSkill(args []string, contents []byte, out, diagnostics io.Writer) er
 	if err != nil {
 		return err
 	}
-	return json.NewEncoder(out).Encode(struct {
-		Path      string `json:"path"`
-		Installed bool   `json:"installed"`
-	}{path, installed})
+	if *asJSON {
+		return writeJSON(out, struct {
+			Path      string `json:"path"`
+			Installed bool   `json:"installed"`
+		}{path, installed})
+	}
+	return printSkillInstallation(out, path, installed)
+}
+
+func printSkillInstallation(out io.Writer, path string, installed bool) error {
+	if installed {
+		_, err := fmt.Fprintf(out, "Installed reporting skill at %s\n", path)
+		return err
+	}
+	_, err := fmt.Fprintf(out, "Reporting skill already installed at %s\n", path)
+	return err
 }
 
 func ensureSkill(directory string, contents []byte) (string, bool, error) {

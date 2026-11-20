@@ -25,7 +25,7 @@ func setup(ctx context.Context, args []string, skill []byte, input io.Reader, ou
 	answers := bufio.NewScanner(input)
 	var service bool
 	if runtime.GOOS == "darwin" {
-		fmt.Fprintln(out, "The background service runs as your user, starts at login, and restarts if it exits.")
+		fmt.Fprintln(out, "The background service runs as the current user, starts at login, and restarts if it exits.")
 		fmt.Fprintln(out, "If backlog serve is running in another terminal, stop it before starting the service.")
 		var err error
 		service, err = confirmSetup(ctx, answers, out, "Install and start the macOS background service?")
@@ -59,16 +59,11 @@ func setup(ctx context.Context, args []string, skill []byte, input io.Reader, ou
 	}
 	if reporting && ctx.Err() == nil {
 		path, installed, err := ensureSkill(*directory, skill)
-		switch {
-		case err != nil:
+		if err != nil {
 			skillErr = fmt.Errorf("set up the reporting skill: %w", err)
-		case installed:
-			fmt.Fprintf(out, "Installed reporting skill at %s\n", path)
-		default:
-			fmt.Fprintf(out, "Reporting skill already installed at %s\n", path)
-		}
-		if err == nil {
-			fmt.Fprintln(out, "Ask your harness to use report-harness-progress from the project directory.")
+		} else {
+			skillErr = printSkillInstallation(out, path, installed)
+			fmt.Fprintln(out, "Configure the harness to use report-harness-progress from the project directory.")
 		}
 	}
 	return errors.Join(serviceErr, skillErr, ctx.Err())

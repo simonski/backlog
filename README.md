@@ -12,9 +12,9 @@ backlog setup
 
 On macOS, the wizard asks whether to install and start a background service and whether to install the reporting skill. The service runs as the current user, starts at login, and restarts if it exits. If a foreground `backlog serve` is already running, stop it with Ctrl-C before starting the service. Run setup as the same user to reuse the default SQLite database. Pass `-p 15001` for a different port or `-db PATH` to reuse a custom database.
 
-Open [127.0.0.1:15000](http://127.0.0.1:15000). From another device on your tailnet, open `http://<server-tailscale-ip>:15000` for a read-only view.
+Open [127.0.0.1:15000](http://127.0.0.1:15000). From another device on the same tailnet, open `http://<server-tailscale-ip>:15000` for a read-only view.
 
-Project summaries and task boards show statuses in this order **Blocked, To do, Doing, Done, No longer needed**.
+Project summaries and task boards show **Blocked**, **To do**, **Doing**, **Done**, and **Rejected**, in that order. A project-wide snapshot marks unfinished tasks it omits as **Rejected**. Reporting a rejected task again returns it to the active task board.
 
 ```sh
 launchctl print "gui/$(id -u)/local.backlog"    # status
@@ -24,9 +24,24 @@ launchctl bootout "gui/$(id -u)/local.backlog" # stop until next login
 
 To remove the service from future logins, unload it and remove `~/Library/LaunchAgents/local.backlog.plist`. Run `backlog serve` for foreground operation. On other platforms, the wizard offers skill installation and the server can be started with `backlog serve`.
 
+From a source checkout, run `make` to list targets. Use `make clean build install` to rebuild and install, or `make run` to build and start the server. Select a different port with `make run -- -p 15001` or `backlog serve -p 15001`.
+
+## CLI output
+
+`task`, `snapshot`, `install-skill`, and `version` print readable summaries by default. Pass `-json` to receive indented JSON on stdout. Diagnostics, including version warnings, go to stderr.
+
+```sh
+backlog version
+backlog version -json
+backlog task -id sign-in -title "Add sign-in" -status doing
+backlog snapshot -file tasks.json -json
+```
+
+Snapshot files and snapshot input on stdin use JSON in either output mode.
+
 ## Reporting skill
 
-The wizard installs `report-harness-progress` under `~/.agents/skills`. Ask your harness to use that skill from the project directory. For a project-only install, run `backlog setup -dir .agents/skills` from that project. For port 15001, set `HARNESS_ADDR=127.0.0.1:15001` in the harness environment.
+The wizard installs `report-harness-progress` under `~/.agents/skills`. Configure the harness to use that skill from the project directory. For a project-only install, run `backlog setup -dir .agents/skills` from that project. For port 15001, set `HARNESS_ADDR=127.0.0.1:15001` in the harness environment.
 
 To install just the skill without prompts, run:
 

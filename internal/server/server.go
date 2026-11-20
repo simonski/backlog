@@ -195,7 +195,7 @@ func taskGroups(tasks []model.Task) []group {
 		{Status: model.Todo, Label: "To do"},
 		{Status: model.Doing, Label: "Doing"},
 		{Status: model.Done, Label: "Done"},
-		{Status: "omitted", Label: "No longer needed"},
+		{Status: "omitted", Label: "Rejected"},
 	}
 	for _, task := range tasks {
 		for i := range groups {

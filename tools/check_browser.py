@@ -39,7 +39,7 @@ def dashboard(binary, database):
 
 def report(binary, url, cwd, *arguments, data=None):
     output = subprocess.run(
-        [binary, arguments[0], "-addr", "127.0.0.1:15000", "-p", str(urlsplit(url).port), *arguments[1:]],
+        [binary, arguments[0], "-json", "-addr", "127.0.0.1:15000", "-p", str(urlsplit(url).port), *arguments[1:]],
         cwd=cwd,
         input=data,
         capture_output=True,
@@ -49,6 +49,15 @@ def report(binary, url, cwd, *arguments, data=None):
     if output.returncode or output.stderr:
         raise RuntimeError(f"Report failed: {output.stderr}")
     return json.loads(output.stdout)
+
+
+def server_version(binary, allow_legacy=False):
+    output = subprocess.run([binary, "version", "-json"], capture_output=True, text=True, timeout=10)
+    if allow_legacy and output.returncode and "flag provided but not defined: -json" in output.stderr:
+        # Releases before 0.5.0 printed JSON by default.
+        return json.loads(subprocess.check_output([binary, "version"], text=True, timeout=10))["server_version"]
+    output.check_returncode()
+    return json.loads(output.stdout)["server_version"]
 
 
 def verify(binary, upgrade_binary):
@@ -69,7 +78,7 @@ def verify(binary, upgrade_binary):
         original = base / "backlog-original"
         shutil.copy2(binary, original)
         running_binary.symlink_to(original)
-        version = json.loads(subprocess.check_output([binary, "version"], text=True))
+        version = server_version(binary)
 
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(channel="chrome")
@@ -81,7 +90,7 @@ def verify(binary, upgrade_binary):
                 response = page.goto(url)
                 assert response.ok
                 expect(page.locator("main")).to_contain_text("Projects appear here")
-                expect(page.locator(".app-version")).to_have_text(f"v{version['server_version']}")
+                expect(page.locator(".app-version")).to_have_text(f"v{version}")
                 mark = page.get_by_role("link", name="Backlog", exact=True).locator("img")
                 expect(mark).to_be_visible()
                 page.wait_for_function('document.querySelector(".brand img").naturalWidth === 64')
@@ -93,12 +102,12 @@ def verify(binary, upgrade_binary):
                 card = page.locator("main").get_by_role("link", name="test-project", exact=False)
                 expect(card).to_be_visible(timeout=3000)
                 expect(card.locator(".status-counts dt")).to_have_text(
-                    ["Blocked", "To do", "Doing", "Done", "No longer needed"]
+                    ["Blocked", "To do", "Doing", "Done", "Rejected"]
                 )
                 card.click()
                 expect(page.get_by_role("heading", name="test-project", exact=True)).to_be_visible()
                 expect(page.locator(".task-group h2")).to_have_text(
-                    ["Blocked 0", "To do 1", "Doing 0", "Done 0", "No longer needed 0"]
+                    ["Blocked 0", "To do 1", "Doing 0", "Done 0", "Rejected 0"]
                 )
                 positions = page.locator(".task-group").evaluate_all(
                     "(groups) => groups.map(group => [group.offsetLeft, group.offsetTop])"
@@ -117,9 +126,9 @@ def verify(binary, upgrade_binary):
 
                 report(binary, url, project, "task", "-id", "research", "-title", "Research sign-in", "-status", "done")
                 report(binary, url, subdir, "snapshot", "-file", os.fspath(snapshot))
-                omitted = page.locator(".task-group.omitted")
-                expect(omitted.get_by_text("Add email sign-in")).to_be_visible(timeout=3000)
-                expect(omitted.locator("progress")).to_have_attribute("value", "60")
+                rejected = page.locator(".task-group").filter(has=page.get_by_role("heading", name="Rejected 1"))
+                expect(rejected.get_by_text("Add email sign-in")).to_be_visible(timeout=3000)
+                expect(rejected.locator("progress")).to_have_attribute("value", "60")
                 expect(page.locator(".task-group.done")).to_contain_text("Research sign-in")
                 expect(page.locator(".task-group.done progress")).to_have_attribute("value", "100")
                 expect(page.locator(".task-group.todo")).to_contain_text("Explore sign-in alternatives")
@@ -131,7 +140,7 @@ def verify(binary, upgrade_binary):
                 doing = page.locator(".task-group.doing")
                 expect(doing.get_by_text("Add email sign-in")).to_be_visible(timeout=3000)
                 expect(doing.locator("progress")).to_have_attribute("value", "60")
-                expect(omitted.locator(".task")).to_have_count(0)
+                expect(page.get_by_role("heading", name="Rejected 0")).to_be_visible()
 
                 report(binary, url, project, "task", "-id", "session", "-title", "Check session handling",
                        "-status", "doing")
@@ -177,7 +186,7 @@ def verify(binary, upgrade_binary):
                     ["other-project", "test-project"], timeout=3000
                 )
                 if upgrade_binary:
-                    upgrade_version = json.loads(subprocess.check_output([upgrade_binary, "version"], text=True))
+                    upgrade_version = server_version(upgrade_binary, allow_legacy=True)
                     version_tag = page.locator(".app-version")
                     old_build = page.locator('meta[name="backlog-build"]').get_attribute("content")
                     staged = base / "backlog-link"
@@ -189,7 +198,7 @@ def verify(binary, upgrade_binary):
                         arg=old_build,
                         timeout=10000,
                     )
-                    expect(version_tag).to_have_text(f"v{upgrade_version['server_version']}")
+                    expect(version_tag).to_have_text(f"v{upgrade_version}")
                     expect(page.locator(".project-card h2")).to_have_text(["other-project", "test-project"])
                     assert page.url == url + "/"
                 assert not errors, errors

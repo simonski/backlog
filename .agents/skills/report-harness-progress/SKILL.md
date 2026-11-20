@@ -9,7 +9,7 @@ Run `backlog` from the project being reported. Use the project root for a non-Gi
 
 - Assign a stable task ID before the first report. Reuse it for later updates and when resuming known work in another conversation.
 - Report new work and meaningful changes as they happen. Include a percentage when there is a reasonable estimate. Put the blocker on the affected task. Report a separate task if resolving the blocker is itself separate work.
-- Send an occasional project-wide snapshot when the overall picture is clear enough, including tentative future work. Include known unfinished tasks that should stay visible as current work. Omitted unfinished tasks are marked **No longer needed**, even when another conversation reported them.
+- Send an occasional project-wide snapshot when the overall picture is clear enough, including tentative future work. Include known unfinished tasks that should stay visible as current work. Omitted unfinished tasks are marked **Rejected**, even when another conversation reported them.
 - If reporting fails, use the CLI diagnostic to explain the telemetry gap and continue the underlying work.
 
 ```sh

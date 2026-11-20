@@ -11,3 +11,4 @@ SDLC.md
 - Every server-backed CLI invocation checks the server's advertised application version. If client and server major/minor versions differ, warn on stderr with both versions and identify the older component to upgrade. Patch-only differences do not trigger a warning. Preserve machine-readable JSON on stdout. If a version cannot be retrieved, do not invent one; an unavailable command must still report the unavailable server version.
 - Update the README, relevant game/interface/network/technical design documents and implementation plan when shipped behavior changes. Reconcile those documents with implementation and record known differences and unfinished targets.
 - use a Makefile where empty pretty prints the targets, use make clean build install and run to run locally.  -p N is the port number
+- the CLI outptus human-readable pretty printed output, not json.  JSON when printed is pretty and only when -json is passed on the CLI

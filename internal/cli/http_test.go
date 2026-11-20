@@ -59,15 +59,18 @@ func TestReportVersionCompatibility(t *testing.T) {
 
 			var out, diagnostics bytes.Buffer
 			address := strings.TrimPrefix(server.URL, "http://")
-			code := (App{}).Run(t.Context(), []string{"task", "-addr", address, "-id", "task", "-title", "Work"}, nil, &out, &diagnostics)
+			code := (App{}).Run(t.Context(), []string{"task", "-addr", address, "-id", "task", "-title", "Work", "-json"}, nil, &out, &diagnostics)
 			if len(requests) != 2 || <-requests != "/api/version" || <-requests != "/api/reports" {
 				t.Fatal("expected a version request followed by the report")
 			}
 			switch {
 			case tc.resultCode == http.StatusOK:
 				var result model.Result
-				if err := json.Unmarshal(out.Bytes(), &result); code != 0 || err != nil || result.Reported != 1 {
+				if err := json.Unmarshal(out.Bytes(), &result); code != 0 || err != nil || result != (model.Result{ProjectID: 1, Reported: 1}) {
 					t.Fatalf("invalid success receipt: exit=%d stdout=%q stderr=%q", code, &out, &diagnostics)
+				}
+				if want := "{\n  \"project_id\": 1,\n  \"reported\": 1\n}\n"; out.String() != want {
+					t.Fatalf("expected indented receipt, got %q", &out)
 				}
 			default:
 				if code == 0 || out.Len() != 0 {
@@ -85,6 +88,43 @@ func TestReportVersionCompatibility(t *testing.T) {
 				(!strings.Contains(diagnostics.String(), version.Client) ||
 					!strings.Contains(diagnostics.String(), tc.serverVersion)) {
 				t.Fatalf("diagnostic omitted versions: %q", &diagnostics)
+			}
+		})
+	}
+}
+
+func TestReportOutputFormats(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(wire.ServerVersion{Version: version.Client})
+	})
+	mux.HandleFunc("POST /api/reports", func(w http.ResponseWriter, r *http.Request) {
+		var report model.Report
+		if err := json.NewDecoder(r.Body).Decode(&report); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		json.NewEncoder(w).Encode(model.Result{ProjectID: 7, Reported: len(report.Tasks)})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	address := strings.TrimPrefix(server.URL, "http://")
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"task text", []string{"task", "-id", "work", "-title", "Work"}, "Project ID:     7\nTasks reported: 1\n"},
+		{"snapshot text", []string{"snapshot"}, "Project ID:     7\nTasks reported: 0\n"},
+		{"snapshot JSON", []string{"snapshot", "-json"}, "{\n  \"project_id\": 7,\n  \"reported\": 0\n}\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out, diagnostics bytes.Buffer
+			args := append(tc.args, "-addr", address)
+			code := (App{}).Run(t.Context(), args, strings.NewReader("[]"), &out, &diagnostics)
+			if code != 0 || diagnostics.Len() != 0 || out.String() != tc.want {
+				t.Fatalf("exit=%d stdout=%q stderr=%q", code, &out, &diagnostics)
 			}
 		})
 	}

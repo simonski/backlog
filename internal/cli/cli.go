@@ -29,7 +29,7 @@ Commands:
   task           Report a single task update
   snapshot       Report all currently known project tasks as a JSON array
   install-skill  Install the embedded harness reporting skill
-  version        Print the binary's application and protocol versions as JSON
+  version        Show the binary's application and protocol versions
 
 Run backlog <command> -help for command options.
 `
@@ -56,15 +56,7 @@ func (app App) Run(ctx context.Context, args []string, input io.Reader, out, dia
 	case "install-skill":
 		err = installSkill(args[1:], app.ReportingSkill, out, diagnostics)
 	case "version":
-		flags := newFlags("version", diagnostics, "")
-		err = parseFlags(flags, args[1:])
-		if err == nil {
-			err = json.NewEncoder(out).Encode(struct {
-				Client   string `json:"client_version"`
-				Server   string `json:"server_version"`
-				Protocol int    `json:"protocol_version"`
-			}{version.Client, version.Server, version.Protocol})
-		}
+		err = showVersion(args[1:], out, diagnostics)
 	default:
 		err = fmt.Errorf("unknown command %q (run backlog -help)", args[0])
 	}
@@ -76,6 +68,29 @@ func (app App) Run(ctx context.Context, args []string, input io.Reader, out, dia
 		return 1
 	}
 	return 0
+}
+
+func showVersion(args []string, out, diagnostics io.Writer) error {
+	flags := newFlags("version", diagnostics, " [-json]")
+	asJSON := flags.Bool("json", false, "print indented JSON")
+	if err := parseFlags(flags, args); err != nil {
+		return err
+	}
+	if *asJSON {
+		return writeJSON(out, struct {
+			Client   string `json:"client_version"`
+			Server   string `json:"server_version"`
+			Protocol int    `json:"protocol_version"`
+		}{version.Client, version.Server, version.Protocol})
+	}
+	_, err := fmt.Fprintf(out, "CLI version:      %s\nServer version:   %s\nProtocol version: %d\n", version.Client, version.Server, version.Protocol)
+	return err
+}
+
+func writeJSON(out io.Writer, value any) error {
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(value)
 }
 
 func newFlags(name string, diagnostics io.Writer, example string) *flag.FlagSet {
@@ -126,13 +141,14 @@ func sendReport(ctx context.Context, command string, args []string, input io.Rea
 	var report model.Report
 	var err error
 	var address string
+	var asJSON bool
 	if command == "task" {
 		var update model.TaskUpdate
-		update, err = parseTask(args, &address, diagnostics)
+		update, err = parseTask(args, &address, &asJSON, diagnostics)
 		report.Tasks = []model.TaskUpdate{update}
 	} else {
 		report.Snapshot = true
-		report.Tasks, err = parseSnapshot(args, &address, input, diagnostics)
+		report.Tasks, err = parseSnapshot(args, &address, &asJSON, input, diagnostics)
 	}
 	if err != nil {
 		return err
@@ -148,11 +164,16 @@ func sendReport(ctx context.Context, command string, args []string, input io.Rea
 	if err != nil {
 		return err
 	}
-	return json.NewEncoder(out).Encode(result)
+	if asJSON {
+		return writeJSON(out, result)
+	}
+	_, err = fmt.Fprintf(out, "Project ID:     %d\nTasks reported: %d\n", result.ProjectID, result.Reported)
+	return err
 }
 
-func parseTask(args []string, address *string, diagnostics io.Writer) (model.TaskUpdate, error) {
+func parseTask(args []string, address *string, asJSON *bool, diagnostics io.Writer) (model.TaskUpdate, error) {
 	flags := newFlags("task", diagnostics, " -id ID [options]")
+	flags.BoolVar(asJSON, "json", false, "print indented JSON")
 	resolveAddress := addressFlags(flags, address, local.DefaultAddress, "local server host:port")
 	var task model.TaskUpdate
 	flags.StringVar(&task.ID, "id", "", "stable task ID")
@@ -181,8 +202,9 @@ func parseTask(args []string, address *string, diagnostics io.Writer) (model.Tas
 	return task, resolveAddress()
 }
 
-func parseSnapshot(args []string, address *string, input io.Reader, diagnostics io.Writer) ([]model.TaskUpdate, error) {
-	flags := newFlags("snapshot", diagnostics, " [-file PATH]")
+func parseSnapshot(args []string, address *string, asJSON *bool, input io.Reader, diagnostics io.Writer) ([]model.TaskUpdate, error) {
+	flags := newFlags("snapshot", diagnostics, " [options]")
+	flags.BoolVar(asJSON, "json", false, "print indented JSON")
 	resolveAddress := addressFlags(flags, address, local.DefaultAddress, "local server host:port")
 	path := flags.String("file", "-", "JSON file, or - for standard input")
 	if err := parseFlags(flags, args); err != nil {

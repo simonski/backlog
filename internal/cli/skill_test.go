@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,20 +16,29 @@ func TestInstallSkillPreservesExistingCopy(t *testing.T) {
 	path := filepath.Join(directory, "report-harness-progress", "SKILL.md")
 	args := []string{"install-skill", "-dir", directory}
 
-	for _, wantInstalled := range []bool{true, false} {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"first installation", args, fmt.Sprintf("Installed reporting skill at %s\n", path)},
+		{"repeat installation", args, fmt.Sprintf("Reporting skill already installed at %s\n", path)},
+		{"JSON receipt", append(args, "-json"), ""},
+	} {
 		var out, diagnostics bytes.Buffer
-		if code := app.Run(t.Context(), args, nil, &out, &diagnostics); code != 0 {
-			t.Fatalf("install-skill exited %d: %s", code, &diagnostics)
+		if code := app.Run(t.Context(), tc.args, nil, &out, &diagnostics); code != 0 {
+			t.Fatalf("%s exited %d: %s", tc.name, code, &diagnostics)
 		}
-		var receipt struct {
-			Path      string `json:"path"`
-			Installed bool   `json:"installed"`
+		want := tc.want
+		if want == "" {
+			pathJSON, err := json.Marshal(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want = fmt.Sprintf("{\n  \"path\": %s,\n  \"installed\": false\n}\n", pathJSON)
 		}
-		if err := json.Unmarshal(out.Bytes(), &receipt); err != nil {
-			t.Fatal(err)
-		}
-		if receipt.Path != path || receipt.Installed != wantInstalled {
-			t.Fatalf("unexpected receipt: %+v", receipt)
+		if out.String() != want || diagnostics.Len() != 0 {
+			t.Fatalf("%s: stdout=%q stderr=%q", tc.name, &out, &diagnostics)
 		}
 	}
 

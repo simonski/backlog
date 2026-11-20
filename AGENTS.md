@@ -2,7 +2,7 @@
 
 ## Project Structure
 
-- `SPECIFICATION.dm` describes the planned single-binary Go application. Its CLI reports task progress and issues to the server, which displays project backlogs on a website. Projects appear as the harness reports them.
+- `SPECIFICATION.md` describes the planned single-binary Go application. Its CLI reports task progress and issues to the server, which displays project backlogs on a website. Projects appear as the harness reports them.
 - `SDLC.md` defines development and release conventions. `README.md` is the entry point for setup and usage documentation.
 - The workspace currently contains planning documents. Keep reusable Go or Python tooling under `tools/` and record tool invocation durations and outcomes in `tools-calls.csv`.
 

@@ -63,6 +63,10 @@ All six commands support `-json` and the server connection options `-p` and `-ad
 
 Snapshot files and snapshot input on stdin use JSON in either output mode.
 
+## Homepage activity
+
+The grid between **Projects** and the tracked-project count shows the past 30 calendar days, including today. Match a project's pastel square in the grid to the square on its card. Each colored pixel represents a ticket reported or updated that day, using its last recorded status for the day. Hover over a cell for the date, project, and status counts. The grid uses the server's local time zone and starts collecting activity when the server is upgraded.
+
 ## Reporting skill
 
 The wizard installs the `backlog` skill at `~/.agents/skills/backlog/SKILL.md`. Configure the harness to use that skill from the project directory. For a project-only install, run `backlog setup -dir .agents/skills` from that project. For port 15001, set `HARNESS_ADDR=127.0.0.1:15001` in the harness environment.

@@ -72,11 +72,12 @@
           {{end}}
         </div>
       {{else}}
-        <header class="page-heading">
+        <header class="page-heading{{if eq .Section "projects"}} homepage-heading{{end}}">
           <h1>{{.Title}}</h1>
           {{if eq .Section "archived"}}
             <span class="total">{{len .Archived}} archived</span>
           {{else}}
+            {{template "project-activity" .Activity}}
             <span class="total">{{len .Projects}} tracked</span>
           {{end}}
         </header>
@@ -100,7 +101,7 @@
       <li>
         <a class="project-card" href="/projects/{{.ID}}">
           <div class="project-name">
-            <h2>{{.Name}}</h2>
+            <h2>{{template "project-pixel" .ID}}{{.Name}}</h2>
             <p class="path">{{.Root}}</p>
           </div>
           <dl class="status-counts">
@@ -118,5 +119,36 @@
     {{end}}
   </ul>
 {{end}}
+
+{{define "project-activity"}}
+  <div class="activity-chart" id="project-activity" role="region" aria-label="Ticket activity over the last 30 days">
+    <table class="activity-grid" aria-label="Tickets reported or changed by day and status">
+      <thead><tr>
+        <th scope="col" aria-label="Project"></th>
+        {{range .Dates}}
+          <th scope="col" aria-label="{{.Label}}" title="{{.Label}}"{{if .Tick}} class="activity-tick"{{end}}>
+            {{if .Tick}}<time datetime="{{.Date}}">{{.Tick}}<span class="activity-month"> {{.Month}}</span></time>{{end}}
+          </th>
+        {{end}}
+      </tr></thead>
+      <tbody>
+        {{range .Rows}}
+          <tr data-project-id="{{.Project.ID}}">
+            <th scope="row" aria-label="{{.Project.Name}}" title="{{.Project.Root}}">{{template "project-pixel" .Project.ID}}</th>
+            {{range .Cells}}
+              <td data-day="{{.Date}}" title="{{.Label}}" aria-label="{{.Label}}">
+                <div class="ticket-pixels" aria-hidden="true">
+                  {{range .Counts}}{{$status := .Status}}{{range .Count}}<span class="ticket-pixel {{$status}}"></span>{{end}}{{end}}
+                </div>
+              </td>
+            {{end}}
+          </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+{{end}}
+
+{{define "project-pixel"}}<svg class="project-pixel" width="7" height="7" aria-hidden="true"><rect width="7" height="7" fill="{{projectColor .}}"/></svg>{{end}}
 
 {{define "activity"}}<span class="activity" aria-hidden="true"><i></i><i></i><i></i></span>{{end}}

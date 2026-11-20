@@ -28,7 +28,8 @@ import (
 var files embed.FS
 
 var dashboard = template.Must(template.New("dashboard.html").Funcs(template.FuncMap{
-	"reportTime": func(nanos int64) time.Time { return time.Unix(0, nanos).UTC() },
+	"reportTime":   func(nanos int64) time.Time { return time.Unix(0, nanos).UTC() },
+	"projectColor": projectColor,
 }).ParseFS(files, "web/dashboard.html"))
 
 type server struct {
@@ -170,6 +171,7 @@ type page struct {
 	Archived []model.Project
 	Selected *model.Project
 	Groups   []group
+	Activity activityChart
 	CanEdit  bool
 	BuildID  string
 	Version  string
@@ -193,7 +195,17 @@ func (app server) dashboard(w http.ResponseWriter, r *http.Request) {
 		selectedID = id
 		view.Section = "project"
 	}
-	projects, tasks, err := app.store.Dashboard(r.Context(), selectedID)
+	var projects []model.Project
+	var tasks []model.Task
+	var activity []model.DailyActivity
+	var err error
+	today := time.Now()
+	first := today.AddDate(0, 0, 1-activityDays)
+	if view.Section == "projects" {
+		projects, activity, err = app.store.Homepage(r.Context(), first.Format(time.DateOnly), today.Format(time.DateOnly))
+	} else {
+		projects, tasks, err = app.store.Dashboard(r.Context(), selectedID)
+	}
 	if err != nil {
 		pageError(w, r, err)
 		return
@@ -212,6 +224,9 @@ func (app server) dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	if view.Selected != nil {
 		view.Groups = taskGroups(tasks)
+	}
+	if view.Section == "projects" {
+		view.Activity = makeActivityChart(first, view.Projects, activity)
 	}
 
 	var output bytes.Buffer

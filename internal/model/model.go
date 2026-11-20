@@ -7,11 +7,19 @@ import (
 )
 
 const (
-	Todo    = "todo"
-	Doing   = "doing"
-	Blocked = "blocked"
-	Done    = "done"
+	Todo     = "todo"
+	Doing    = "doing"
+	Blocked  = "blocked"
+	Done     = "done"
+	Rejected = "rejected"
 )
+
+type DailyActivity struct {
+	Day       string
+	ProjectID int64
+	Status    string
+	Count     int
+}
 
 type Invalid string
 

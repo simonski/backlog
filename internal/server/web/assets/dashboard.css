@@ -43,6 +43,54 @@ h3 { font-size: 1rem; line-height: 1.4; }
 main { padding: 2.6rem 0 4rem; }
 .page-heading { margin-bottom: 1.6rem; flex-wrap: wrap; }
 .page-heading .path { margin-top: .6rem; }
+.homepage-heading {
+  --projects-title-size: clamp(2rem, 5vw, 3.1rem);
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  gap: clamp(.45rem, 2vw, 1.2rem);
+}
+.homepage-heading h1 { font-size: var(--projects-title-size); }
+.homepage-heading .total { white-space: nowrap; }
+.activity-chart {
+  min-block-size: calc(var(--projects-title-size) * 1.1);
+  min-inline-size: 0;
+  container-type: inline-size;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: .35rem;
+}
+.activity-grid {
+  table-layout: fixed;
+  width: 100%;
+  border-spacing: 2px;
+  padding: .1rem .9rem .1rem .35rem;
+  font: .6rem/1.25 ui-monospace, monospace;
+  color: var(--muted);
+}
+.activity-grid th, .activity-grid td { padding: 0; vertical-align: top; }
+.activity-grid th:first-child { width: .7rem; }
+.activity-grid thead th { height: 1rem; position: relative; }
+.activity-grid time { position: absolute; left: 50%; transform: translateX(-50%); white-space: nowrap; }
+.activity-tick::after { content: ""; position: absolute; left: calc(50% - .5px); bottom: 0; width: 1px; height: 3px; background: var(--muted); }
+.ticket-pixels { display: flex; flex-wrap: wrap; justify-content: center; align-content: flex-start; gap: 1px; min-height: 8px; padding: 2px; background: var(--raised); }
+.ticket-pixel { width: min(4px, 100%); height: 4px; }
+.activity-grid tbody th .project-pixel { margin-top: 2px; }
+@container (max-width: 23rem) {
+  .activity-grid { border-spacing: 1px; padding-inline: .35rem; }
+  .activity-month { display: none; }
+  .ticket-pixels { padding: 1px 0; }
+  .ticket-pixel { width: min(3px, 100%); height: 3px; }
+}
+@container (max-width: 10rem) {
+  .activity-grid thead th:not(:nth-child(2)):not(:last-child) time { visibility: hidden; }
+}
+.ticket-pixel.blocked { background: var(--amber); }
+.ticket-pixel.todo { background: #e4b2f4; }
+.ticket-pixel.doing { background: var(--blue); }
+.ticket-pixel.done { background: var(--teal); }
+.ticket-pixel.rejected { background: #8c9ab4; }
+.project-pixel { display: inline-block; }
+.project-name .project-pixel { margin-right: .4rem; vertical-align: .13em; }
 .path, .last-report, .total, .empty-group, .empty-state { color: var(--muted); }
 .path, .last-report { font-size: .875rem; overflow-wrap: anywhere; }
 .path { font-family: ui-monospace, monospace; }

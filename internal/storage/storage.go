@@ -34,6 +34,15 @@ CREATE TABLE IF NOT EXISTS tasks (
 	omitted INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (project_id, id)
 );
+
+CREATE TABLE IF NOT EXISTS daily_task_activity (
+	day TEXT NOT NULL,
+	project_id INTEGER NOT NULL,
+	task_id TEXT NOT NULL,
+	status TEXT NOT NULL CHECK (status IN ('todo', 'doing', 'blocked', 'done', 'rejected')),
+	PRIMARY KEY (day, project_id, task_id),
+	FOREIGN KEY (project_id, task_id) REFERENCES tasks(project_id, id)
+);
 `
 
 type Store struct {
@@ -108,7 +117,18 @@ func (store *Store) apply(ctx context.Context, root string, tasks []model.TaskUp
 		return model.Result{}, err
 	}
 
+	now := time.Now()
+	day := now.Format(time.DateOnly)
 	if snapshot {
+		// Included tasks overwrite their provisional rejection below.
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO daily_task_activity (day, project_id, task_id, status)
+			SELECT ?, project_id, id, 'rejected' FROM tasks
+			WHERE project_id = ? AND status <> 'done' AND omitted = 0
+			ON CONFLICT (day, project_id, task_id) DO UPDATE SET status = excluded.status
+		`, day, projectID); err != nil {
+			return model.Result{}, err
+		}
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE tasks SET omitted = 1 WHERE project_id = ? AND status <> 'done' AND omitted = 0
 		`, projectID); err != nil {
@@ -119,8 +139,15 @@ func (store *Store) apply(ctx context.Context, root string, tasks []model.TaskUp
 		if err := applyTask(ctx, tx, projectID, task, allowCreate); err != nil {
 			return model.Result{}, err
 		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO daily_task_activity (day, project_id, task_id, status)
+			SELECT ?, project_id, id, status FROM tasks WHERE project_id = ? AND id = ?
+			ON CONFLICT (day, project_id, task_id) DO UPDATE SET status = excluded.status
+		`, day, projectID, task.ID); err != nil {
+			return model.Result{}, err
+		}
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE projects SET latest_report = ? WHERE id = ?", time.Now().UnixNano(), projectID); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE projects SET latest_report = ? WHERE id = ?", now.UnixNano(), projectID); err != nil {
 		return model.Result{}, err
 	}
 	if err := tx.Commit(); err != nil {

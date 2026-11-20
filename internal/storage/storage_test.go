@@ -3,6 +3,7 @@ package storage
 import (
 	"errors"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"harness.engineering/internal/model"
@@ -28,12 +29,17 @@ func TestInvalidSnapshotRollsBackAllChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, activityBefore, err := store.Homepage(t.Context(), "0001-01-01", "9999-12-31")
+	if err != nil || len(activityBefore) != 1 || activityBefore[0].Status != model.Todo {
+		t.Fatalf("initial activity: %+v (%v)", activityBefore, err)
+	}
 
 	rename := "Replacement title"
+	status := model.Doing
 	_, err = store.Apply(t.Context(), model.Report{
 		Root:     root,
 		Snapshot: true,
-		Tasks:    []model.TaskUpdate{{ID: "original", Title: &rename}, {ID: "missing-title"}},
+		Tasks:    []model.TaskUpdate{{ID: "original", Title: &rename, Status: &status}, {ID: "missing-title"}},
 	})
 	var invalid model.Invalid
 	if !errors.As(err, &invalid) {
@@ -49,6 +55,10 @@ func TestInvalidSnapshotRollsBackAllChanges(t *testing.T) {
 	}
 	if projects[0].LatestReport != before[0].LatestReport {
 		t.Fatal("invalid snapshot advanced the latest report time")
+	}
+	_, activityAfter, err := store.Homepage(t.Context(), "0001-01-01", "9999-12-31")
+	if err != nil || !slices.Equal(activityAfter, activityBefore) {
+		t.Fatalf("invalid snapshot changed activity: %+v (%v)", activityAfter, err)
 	}
 
 	_, err = store.Apply(t.Context(), model.Report{

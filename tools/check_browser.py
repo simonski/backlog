@@ -99,6 +99,28 @@ def verify(binary, upgrade_binary):
                 assert icon.ok and icon.body().startswith(b"\x00\x00\x01\x00")
 
                 initial = report(binary, url, project, "task", "-id", "login", "-title", "Add sign-in")
+                chart = page.locator("#project-activity")
+                activity_row = chart.locator(f'tr[data-project-id="{initial["project_id"]}"]')
+                expect(activity_row.locator("td")).to_have_count(30, timeout=3000)
+                expect(activity_row.locator("td").last.locator(".ticket-pixel.todo")).to_have_count(1)
+                assert chart.evaluate("""element => {
+                    const chart = element.getBoundingClientRect();
+                    const title = element.previousElementSibling.getBoundingClientRect();
+                    const count = element.nextElementSibling.getBoundingClientRect();
+                    return title.right <= chart.left && chart.right <= count.left &&
+                        Math.abs(chart.height - title.height) < 1 && Math.abs(chart.top - title.top) < 1;
+                }""")
+                assert chart.evaluate("""element => {
+                    const center = node => {
+                        const rect = node.getBoundingClientRect();
+                        return rect.left + rect.width / 2;
+                    };
+                    const headings = [...element.querySelectorAll('thead th')].slice(1);
+                    const cells = [...element.querySelectorAll('tbody td')];
+                    const pixel = cells.at(-1).querySelector('.ticket-pixel');
+                    return headings.every((heading, i) => Math.abs(center(heading) - center(cells[i])) < 1) &&
+                        Math.abs(center(headings.at(-1).querySelector('time')) - center(pixel)) < 1;
+                }""")
                 card = page.locator("main").get_by_role("link", name="test-project", exact=False)
                 expect(card).to_be_visible(timeout=3000)
                 expect(card.locator(".status-counts dt")).to_have_text(
@@ -134,6 +156,10 @@ def verify(binary, upgrade_binary):
                 expect(page.locator(".task-group.todo")).to_contain_text("Explore sign-in alternatives")
                 page.get_by_role("link", name="Projects", exact=True).click()
                 expect(card.locator(".status-counts dd")).to_have_text(["0", "1", "0", "1", "1"])
+                today = activity_row.locator("td").last
+                expect(today.locator(".ticket-pixel")).to_have_count(3)
+                expect(today.locator(".ticket-pixel.rejected")).to_have_count(1)
+                expect(today.locator(".ticket-pixel.blocked")).to_have_count(0)
                 card.click()
 
                 report(binary, url, project, "task", "-id", "login", "-status", "doing")
@@ -170,6 +196,7 @@ def verify(binary, upgrade_binary):
             with dashboard(running_binary, database) as url:
                 page.goto(url)
                 expect(page.locator("main").get_by_role("link", name="test-project", exact=False)).to_have_count(0)
+                expect(activity_row).to_have_count(0)
                 page.get_by_role("link", name="Archived", exact=True).click()
                 page.locator("main").get_by_role("link", name="test-project", exact=False).click()
                 expect(page.get_by_text("Review after archive")).to_be_visible()
@@ -179,12 +206,27 @@ def verify(binary, upgrade_binary):
                 page.get_by_role("link", name="Projects", exact=True).click()
                 expect(page.locator("main").get_by_role("link", name="test-project", exact=False)).to_be_visible()
                 expect(page.locator(".active-count .activity")).to_be_visible()
+                expect(activity_row.locator("td").last.locator(".ticket-pixel.doing")).to_have_count(2)
+                assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
 
-                other = report(binary, url, other_project, "snapshot", data="[]")
+                other = report(binary, url, other_project, "snapshot", data=json.dumps([
+                    {"id": str(number), "title": f"Review ticket {number}"} for number in range(20)
+                ]))
                 assert other["project_id"] != initial["project_id"]
                 expect(page.locator(".project-card h2")).to_have_text(
                     ["other-project", "test-project"], timeout=3000
                 )
+                colors = chart.locator(".project-pixel rect").evaluate_all(
+                    "pixels => pixels.map(pixel => getComputedStyle(pixel).fill)"
+                )
+                assert len(set(colors)) == 2
+                for width in [375, 320]:
+                    page.set_viewport_size({"width": width, "height": 800})
+                    assert chart.evaluate("""element =>
+                        element.clientWidth >= element.scrollWidth && element.clientHeight >= element.scrollHeight &&
+                        element.offsetHeight > element.previousElementSibling.offsetHeight
+                    """)
+                    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
                 if upgrade_binary:
                     upgrade_version = server_version(upgrade_binary, allow_legacy=True)
                     version_tag = page.locator(".app-version")

@@ -21,24 +21,10 @@ func publish(ctx context.Context, address string, report model.Report, diagnosti
 	if err := local.ValidateAddress(address); err != nil {
 		return result, err
 	}
-	client := &http.Client{
-		Transport: &http.Transport{},
-		Timeout:   4 * time.Second,
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := serverHTTPClient()
 	defer client.CloseIdleConnections()
 	base := "http://" + address
-	var advertised wire.ServerVersion
-	versionErr := request(ctx, client, http.MethodGet, base+"/api/version", nil, &advertised)
-	if versionErr == nil && version.Valid(advertised.Version) {
-		if warning := version.Warning(version.Client, advertised.Version); warning != "" {
-			fmt.Fprintln(diagnostics, warning)
-		}
-	} else {
-		advertised.Version = ""
-	}
+	versionAvailable := checkServerVersion(ctx, client, base, diagnostics)
 
 	payload, err := json.Marshal(report)
 	if err != nil {
@@ -48,10 +34,31 @@ func publish(ctx context.Context, address string, report model.Report, diagnosti
 		return result, errors.New("report exceeds 1 MiB")
 	}
 	err = request(ctx, client, http.MethodPost, base+"/api/reports", payload, &result)
-	if err != nil && advertised.Version == "" {
+	if err != nil && !versionAvailable {
 		err = fmt.Errorf("%w (server version unavailable)", err)
 	}
 	return result, err
+}
+
+func serverHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{},
+		Timeout:   4 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
+func checkServerVersion(ctx context.Context, client *http.Client, base string, diagnostics io.Writer) bool {
+	var advertised wire.ServerVersion
+	if err := request(ctx, client, http.MethodGet, base+"/api/version", nil, &advertised); err != nil || !version.Valid(advertised.Version) {
+		return false
+	}
+	if warning := version.Warning(version.Client, advertised.Version); warning != "" {
+		fmt.Fprintln(diagnostics, warning)
+	}
+	return true
 }
 
 func request(ctx context.Context, client *http.Client, method, url string, payload []byte, target any) error {

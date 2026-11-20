@@ -26,6 +26,12 @@ To remove the service from future logins, unload it and remove `~/Library/Launch
 
 From a source checkout, run `make` to list targets. Use `make clean build install` to rebuild and install, or `make run` to build and start the server. Select a different port with `make run -- -p 15001` or `backlog serve -p 15001`.
 
+## macOS menu bar
+
+Run `backlog menu` from a macOS desktop session to show a ticket icon in the menu bar. **Open Backlog** opens the dashboard in the default browser. **Quick Backlog** opens the live dashboard in a compact window.
+
+The menu uses the running local server. For a custom port, use `backlog menu -p 15001`. Press Ctrl-C in the terminal running the command to remove the icon.
+
 ## CLI output
 
 `task`, `snapshot`, `install-skill`, and `version` print readable summaries by default. Pass `-json` to receive indented JSON on stdout. Diagnostics, including version warnings, go to stderr.

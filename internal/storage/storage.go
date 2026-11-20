@@ -78,31 +78,45 @@ func (store *Store) Apply(ctx context.Context, report model.Report) (model.Resul
 	if err := report.Validate(); err != nil {
 		return model.Result{}, err
 	}
+	return store.apply(ctx, report.Root, report.Tasks, report.Snapshot, true)
+}
 
+func (store *Store) UpdateTasks(ctx context.Context, changes model.TaskChanges) (model.Result, error) {
+	if err := changes.Validate(); err != nil {
+		return model.Result{}, err
+	}
+	return store.apply(ctx, changes.Root, changes.Tasks, false, false)
+}
+
+func (store *Store) apply(ctx context.Context, root string, tasks []model.TaskUpdate, snapshot, allowCreate bool) (model.Result, error) {
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return model.Result{}, err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO projects(root) VALUES (?) ON CONFLICT(root) DO NOTHING
-	`, report.Root); err != nil {
-		return model.Result{}, err
+	if allowCreate {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO projects(root) VALUES (?) ON CONFLICT(root) DO NOTHING
+		`, root); err != nil {
+			return model.Result{}, err
+		}
 	}
 	var projectID int64
-	if err := tx.QueryRowContext(ctx, "SELECT id FROM projects WHERE root = ?", report.Root).Scan(&projectID); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT id FROM projects WHERE root = ?", root).Scan(&projectID); errors.Is(err, sql.ErrNoRows) {
+		return model.Result{}, model.Invalid("no tasks found for this project")
+	} else if err != nil {
 		return model.Result{}, err
 	}
 
-	if report.Snapshot {
+	if snapshot {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE tasks SET omitted = 1 WHERE project_id = ? AND status <> 'done' AND omitted = 0
 		`, projectID); err != nil {
 			return model.Result{}, err
 		}
 	}
-	for _, task := range report.Tasks {
-		if err := applyTask(ctx, tx, projectID, task); err != nil {
+	for _, task := range tasks {
+		if err := applyTask(ctx, tx, projectID, task, allowCreate); err != nil {
 			return model.Result{}, err
 		}
 	}
@@ -112,10 +126,10 @@ func (store *Store) Apply(ctx context.Context, report model.Report) (model.Resul
 	if err := tx.Commit(); err != nil {
 		return model.Result{}, err
 	}
-	return model.Result{ProjectID: projectID, Reported: len(report.Tasks)}, nil
+	return model.Result{ProjectID: projectID, Reported: len(tasks)}, nil
 }
 
-func applyTask(ctx context.Context, tx *sql.Tx, projectID int64, task model.TaskUpdate) error {
+func applyTask(ctx context.Context, tx *sql.Tx, projectID int64, task model.TaskUpdate, allowCreate bool) error {
 	updated, err := tx.ExecContext(ctx, `
 		UPDATE tasks SET title = COALESCE(?, title), description = COALESCE(?, description),
 			status = COALESCE(?, status), progress = COALESCE(?, progress),
@@ -128,6 +142,9 @@ func applyTask(ctx context.Context, tx *sql.Tx, projectID int64, task model.Task
 	count, err := updated.RowsAffected()
 	if err != nil || count > 0 {
 		return err
+	}
+	if !allowCreate {
+		return model.Invalid(fmt.Sprintf("task %q not found", task.ID))
 	}
 	if task.Title == nil {
 		return model.Invalid(fmt.Sprintf("new task %q requires a title", task.ID))
@@ -220,6 +237,51 @@ func listTasks(ctx context.Context, tx *sql.Tx, projectID int64) ([]model.Task, 
 		tasks = append(tasks, task)
 	}
 	return tasks, rows.Err()
+}
+
+func (store *Store) ListTasks(ctx context.Context, root string, ids []string) ([]model.Task, error) {
+	if err := model.ValidateRoot(root); err != nil {
+		return nil, err
+	}
+	if err := model.ValidateTaskIDs(ids); err != nil {
+		return nil, err
+	}
+	tx, err := store.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var projectID int64
+	err = tx.QueryRowContext(ctx, "SELECT id FROM projects WHERE root = ?", root).Scan(&projectID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	var tasks []model.Task
+	if err == nil {
+		tasks, err = listTasks(ctx, tx, projectID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(ids) == 0 {
+		if tasks == nil {
+			tasks = []model.Task{}
+		}
+		return tasks, nil
+	}
+	byID := make(map[string]model.Task, len(tasks))
+	for _, task := range tasks {
+		byID[task.ID] = task
+	}
+	selected := make([]model.Task, 0, len(ids))
+	for _, id := range ids {
+		task, ok := byID[id]
+		if !ok {
+			return nil, model.Invalid(fmt.Sprintf("task %q not found", id))
+		}
+		selected = append(selected, task)
+	}
+	return selected, nil
 }
 
 func IsMissing(err error) bool { return errors.Is(err, sql.ErrNoRows) }

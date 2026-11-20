@@ -32,27 +32,66 @@ type Report struct {
 	Tasks    []TaskUpdate `json:"tasks"`
 }
 
+type TaskChanges struct {
+	Root  string       `json:"root"`
+	Tasks []TaskUpdate `json:"tasks"`
+}
+
 func (report Report) Validate() error {
-	if !filepath.IsAbs(report.Root) || filepath.Clean(report.Root) != report.Root {
-		return Invalid("project root must be an absolute, clean path")
-	}
 	if report.Tasks == nil || (!report.Snapshot && len(report.Tasks) != 1) {
 		return Invalid("a task report needs one task and a snapshot needs a task array")
 	}
-	seen := make(map[string]bool, len(report.Tasks))
-	for _, task := range report.Tasks {
-		if strings.TrimSpace(task.ID) == "" {
+	return validateTasks(report.Root, report.Tasks)
+}
+
+func (changes TaskChanges) Validate() error {
+	if len(changes.Tasks) == 0 {
+		return Invalid("at least one task update is required")
+	}
+	if err := validateTasks(changes.Root, changes.Tasks); err != nil {
+		return err
+	}
+	for _, task := range changes.Tasks {
+		if task.Title == nil && task.Description == nil && task.Status == nil && task.Progress == nil && task.Blocker == nil {
+			return Invalid(fmt.Sprintf("task %q: at least one field to update is required", task.ID))
+		}
+	}
+	return nil
+}
+
+func ValidateRoot(root string) error {
+	if !filepath.IsAbs(root) || filepath.Clean(root) != root {
+		return Invalid("project root must be an absolute, clean path")
+	}
+	return nil
+}
+
+func ValidateTaskIDs(ids []string) error {
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if strings.TrimSpace(id) == "" {
 			return Invalid("task ID is required")
 		}
-		if seen[task.ID] {
-			return Invalid(fmt.Sprintf("duplicate task ID %q", task.ID))
+		if seen[id] {
+			return Invalid(fmt.Sprintf("duplicate task ID %q", id))
 		}
-		seen[task.ID] = true
+		seen[id] = true
+	}
+	return nil
+}
+
+func validateTasks(root string, tasks []TaskUpdate) error {
+	if err := ValidateRoot(root); err != nil {
+		return err
+	}
+	ids := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		ids = append(ids, task.ID)
 		if err := task.validate(); err != nil {
 			return Invalid(fmt.Sprintf("task %q: %s", task.ID, err))
 		}
 	}
-	return nil
+	return ValidateTaskIDs(ids)
 }
 
 func (task TaskUpdate) validate() error {
@@ -89,13 +128,13 @@ func (project Project) Name() string {
 }
 
 type Task struct {
-	ID          string
-	Title       string
-	Description string
-	Status      string
-	Progress    *int
-	Blocker     string
-	Omitted     bool
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Status      string `json:"status"`
+	Progress    *int   `json:"progress"`
+	Blocker     string `json:"blocker"`
+	Omitted     bool   `json:"omitted"`
 }
 
 func (task Task) DisplayProgress() *int {

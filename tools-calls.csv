@@ -28,3 +28,15 @@ timestamp_utc,tool,duration_seconds,outcome
 2026-11-20T22:48:12.894Z,CGO_ENABLED=0 go test ./...,1.88,passed
 2026-11-20T22:48:12.894Z,git diff --check,0.02,passed
 2026-11-20T22:48:12.894Z,macOS menu launch and SIGTERM,0.00,passed
+2026-11-20T23:00:26.075Z,initial dashboard report,0.000,failed
+2026-11-20T23:00:26.075Z,installed skill update,0.000,passed
+2026-11-20T23:00:26.075Z,go test ./...,1.930,passed
+2026-11-20T23:00:26.075Z,go build ./...,2.099,passed
+2026-11-20T23:00:26.075Z,make build,1.624,passed
+2026-11-20T23:00:26.075Z,Go formatting check,0.000,passed
+2026-11-20T23:00:26.075Z,git diff --check,0.000,passed
+2026-11-20T23:00:26.075Z,installed skill comparison,0.000,passed
+2026-11-20T23:00:26.075Z,ticket and version checks,1.197,passed
+2026-11-20T23:00:26.075Z,built CLI help and version,0.000,passed
+2026-11-20T23:00:26.075Z,dashboard completion report,0.000,passed
+2026-11-20T23:00:26.075Z,live ticket listing,0.000,passed

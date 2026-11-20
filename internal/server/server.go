@@ -48,6 +48,8 @@ func Handler(store *storage.Store, buildID string) http.Handler {
 	mux.Handle("GET /favicon.ico", static)
 	mux.HandleFunc("GET /api/version", app.version)
 	mux.HandleFunc("POST /api/reports", app.report)
+	mux.HandleFunc("GET /api/tasks", app.listTasks)
+	mux.HandleFunc("PATCH /api/tasks", app.updateTasks)
 	mux.HandleFunc("GET /{$}", app.dashboard)
 	mux.HandleFunc("GET /archived", app.dashboard)
 	mux.HandleFunc("GET /projects/{id}", app.dashboard)
@@ -89,25 +91,59 @@ func (app server) version(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (app server) report(w http.ResponseWriter, r *http.Request) {
-	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || mediaType != "application/json" {
-		writeJSON(w, http.StatusUnsupportedMediaType, wire.Failure{Error: "expected application/json"})
-		return
-	}
 	var report model.Report
-	err = wire.ReadJSON(http.MaxBytesReader(w, r.Body, wire.MaxReportBytes), &report)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, wire.Failure{Error: "invalid report: " + err.Error()})
+	if !readReport(w, r, &report) {
 		return
 	}
 	result, err := app.store.Apply(r.Context(), report)
+	writeTaskResponse(w, result, err, "save report")
+}
+
+func (app server) listTasks(w http.ResponseWriter, r *http.Request) {
+	if !localRequest(r) {
+		writeJSON(w, http.StatusForbidden, wire.Failure{Error: "listing tasks requires a local connection"})
+		return
+	}
+	query, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, wire.Failure{Error: "invalid task query"})
+		return
+	}
+	tasks, err := app.store.ListTasks(r.Context(), query.Get("root"), query["id"])
+	writeTaskResponse(w, tasks, err, "list tasks")
+}
+
+func (app server) updateTasks(w http.ResponseWriter, r *http.Request) {
+	var changes model.TaskChanges
+	if !readReport(w, r, &changes) {
+		return
+	}
+	result, err := app.store.UpdateTasks(r.Context(), changes)
+	writeTaskResponse(w, result, err, "update tasks")
+}
+
+func readReport(w http.ResponseWriter, r *http.Request, target any) bool {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		writeJSON(w, http.StatusUnsupportedMediaType, wire.Failure{Error: "expected application/json"})
+		return false
+	}
+	err = wire.ReadJSON(http.MaxBytesReader(w, r.Body, wire.MaxReportBytes), target)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, wire.Failure{Error: "invalid report: " + err.Error()})
+		return false
+	}
+	return true
+}
+
+func writeTaskResponse(w http.ResponseWriter, result any, err error, operation string) {
 	var invalid model.Invalid
 	switch {
 	case errors.As(err, &invalid):
 		writeJSON(w, http.StatusBadRequest, wire.Failure{Error: invalid.Error()})
 	case err != nil:
-		log.Printf("save report: %v", err)
-		writeJSON(w, http.StatusInternalServerError, wire.Failure{Error: "could not save report"})
+		log.Printf("%s: %v", operation, err)
+		writeJSON(w, http.StatusInternalServerError, wire.Failure{Error: "could not " + operation})
 	default:
 		writeJSON(w, http.StatusOK, result)
 	}

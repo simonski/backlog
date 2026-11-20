@@ -11,33 +11,35 @@ import (
 	"time"
 
 	"harness.engineering/internal/local"
-	"harness.engineering/internal/model"
 	"harness.engineering/internal/version"
 	"harness.engineering/internal/wire"
 )
 
-func publish(ctx context.Context, address string, report model.Report, diagnostics io.Writer) (model.Result, error) {
-	var result model.Result
+func requestServer(ctx context.Context, address, method, path string, body, target any, diagnostics io.Writer) error {
 	if err := local.ValidateAddress(address); err != nil {
-		return result, err
+		return err
 	}
 	client := serverHTTPClient()
 	defer client.CloseIdleConnections()
 	base := "http://" + address
 	versionAvailable := checkServerVersion(ctx, client, base, diagnostics)
 
-	payload, err := json.Marshal(report)
-	if err != nil {
-		return result, err
+	var payload []byte
+	if body != nil {
+		var err error
+		payload, err = json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		if len(payload) > wire.MaxReportBytes {
+			return errors.New("report exceeds 1 MiB")
+		}
 	}
-	if len(payload) > wire.MaxReportBytes {
-		return result, errors.New("report exceeds 1 MiB")
-	}
-	err = request(ctx, client, http.MethodPost, base+"/api/reports", payload, &result)
+	err := request(ctx, client, method, base+path, payload, target)
 	if err != nil && !versionAvailable {
 		err = fmt.Errorf("%w (server version unavailable)", err)
 	}
-	return result, err
+	return err
 }
 
 func serverHTTPClient() *http.Client {
@@ -74,15 +76,14 @@ func request(ctx context.Context, client *http.Client, method, url string, paylo
 		return err
 	}
 	defer response.Body.Close()
-	body := io.LimitReader(response.Body, 64<<10)
 	if response.StatusCode != http.StatusOK {
 		var failure wire.Failure
-		if err := json.NewDecoder(body).Decode(&failure); err == nil && failure.Error != "" {
+		if err := json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&failure); err == nil && failure.Error != "" {
 			return fmt.Errorf("%s: %s", response.Status, failure.Error)
 		}
 		return errors.New(response.Status)
 	}
-	if err := json.NewDecoder(body).Decode(target); err != nil {
+	if err := json.NewDecoder(response.Body).Decode(target); err != nil {
 		return fmt.Errorf("invalid server response: %w", err)
 	}
 	return nil

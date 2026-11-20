@@ -43,6 +43,24 @@ backlog task -id sign-in -title "Add sign-in" -status doing
 backlog snapshot -file tasks.json -json
 ```
 
+## List and update tickets
+
+Run these commands from the project directory or any subdirectory of its Git working tree. Use the ticket IDs shown by `ls`. Numeric IDs and names such as `sign-in` both work.
+
+```sh
+backlog ls
+backlog ls -id 12,15 -json
+backlog update -id 12,15 -status doing -progress 25
+backlog block -id 12 -blocker "Waiting for review"
+backlog todo -id 12,15
+backlog doing -id 12,15
+backlog done -id 12,15
+```
+
+`ls` shows every ticket by default, including completed and rejected tickets. `update` applies any supplied `-title`, `-description`, `-status`, `-progress`, or `-blocker` fields to each selected ticket. Use `-blocker ''` to clear a blocker note. Each change applies to the entire list in one transaction. An unknown ID causes the command to fail before any changes are committed. Use `task -id ID -title TITLE` to create a ticket.
+
+All six commands support `-json` and the server connection options `-p` and `-addr`.
+
 Snapshot files and snapshot input on stdin use JSON in either output mode.
 
 ## Reporting skill

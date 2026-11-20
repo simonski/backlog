@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,6 +30,12 @@ Commands:
   menu           Show the Backlog menu in the macOS menu bar
   task           Report a single task update
   snapshot       Report all currently known project tasks as a JSON array
+  ls             List tickets for the current project
+  update         Edit one or more existing tickets
+  block          Mark tickets blocked
+  todo           Mark tickets to do
+  doing          Mark tickets in progress
+  done           Mark tickets complete
   install-skill  Install the embedded harness reporting skill
   version        Show the binary's application and protocol versions
 
@@ -56,6 +63,10 @@ func (app App) Run(ctx context.Context, args []string, input io.Reader, out, dia
 		err = runMenu(ctx, args[1:], diagnostics)
 	case "task", "snapshot":
 		err = sendReport(ctx, args[0], args[1:], input, out, diagnostics)
+	case "ls":
+		err = listTickets(ctx, args[1:], out, diagnostics)
+	case "update", "block", "todo", "doing", "done":
+		err = updateTickets(ctx, args[0], args[1:], out, diagnostics)
 	case "install-skill":
 		err = installSkill(args[1:], app.ReportingSkill, out, diagnostics)
 	case "version":
@@ -147,7 +158,7 @@ func sendReport(ctx context.Context, command string, args []string, input io.Rea
 	var asJSON bool
 	if command == "task" {
 		var update model.TaskUpdate
-		update, err = parseTask(args, &address, &asJSON, diagnostics)
+		update, err = parseTask("task", args, &address, &asJSON, diagnostics)
 		report.Tasks = []model.TaskUpdate{update}
 	} else {
 		report.Snapshot = true
@@ -163,8 +174,8 @@ func sendReport(ctx context.Context, command string, args []string, input io.Rea
 	if err := report.Validate(); err != nil {
 		return err
 	}
-	result, err := publish(ctx, address, report, diagnostics)
-	if err != nil {
+	var result model.Result
+	if err := requestServer(ctx, address, http.MethodPost, "/api/reports", report, &result, diagnostics); err != nil {
 		return err
 	}
 	if asJSON {
@@ -174,32 +185,52 @@ func sendReport(ctx context.Context, command string, args []string, input io.Rea
 	return err
 }
 
-func parseTask(args []string, address *string, asJSON *bool, diagnostics io.Writer) (model.TaskUpdate, error) {
-	flags := newFlags("task", diagnostics, " -id ID [options]")
+func parseTask(command string, args []string, address *string, asJSON *bool, diagnostics io.Writer) (model.TaskUpdate, error) {
+	example, idHelp := " -id ID[,ID...] [options]", "comma-separated ticket IDs"
+	if command == "task" {
+		example, idHelp = " -id ID [options]", "stable task ID"
+	}
+	flags := newFlags(command, diagnostics, example)
 	flags.BoolVar(asJSON, "json", false, "print indented JSON")
 	resolveAddress := addressFlags(flags, address, local.DefaultAddress, "local server host:port")
 	var task model.TaskUpdate
-	flags.StringVar(&task.ID, "id", "", "stable task ID")
-	title := flags.String("title", "", "task title (required for a new task)")
-	description := flags.String("description", "", "task description")
-	status := flags.String("status", "", "todo, doing, blocked, or done")
-	progress := flags.Int("progress", 0, "completion percentage, 0 to 100")
-	blocker := flags.String("blocker", "", "blocker note")
+	flags.StringVar(&task.ID, "id", "", idHelp)
+	var title, description, status, blocker string
+	var progress int
+	if command == "task" || command == "update" {
+		titleHelp := "task title"
+		if command == "task" {
+			titleHelp += " (required for a new task)"
+		}
+		flags.StringVar(&title, "title", "", titleHelp)
+		flags.StringVar(&description, "description", "", "task description")
+		flags.StringVar(&status, "status", "", "todo, doing, blocked, or done")
+		flags.IntVar(&progress, "progress", 0, "completion percentage, 0 to 100")
+	} else {
+		status = command
+		if command == "block" {
+			status = model.Blocked
+		}
+		task.Status = &status
+	}
+	if command == "task" || command == "update" || command == "block" {
+		flags.StringVar(&blocker, "blocker", "", "blocker note")
+	}
 	if err := parseFlags(flags, args); err != nil {
 		return task, err
 	}
 	flags.Visit(func(field *flag.Flag) {
 		switch field.Name {
 		case "title":
-			task.Title = title
+			task.Title = &title
 		case "description":
-			task.Description = description
+			task.Description = &description
 		case "status":
-			task.Status = status
+			task.Status = &status
 		case "progress":
-			task.Progress = progress
+			task.Progress = &progress
 		case "blocker":
-			task.Blocker = blocker
+			task.Blocker = &blocker
 		}
 	})
 	return task, resolveAddress()

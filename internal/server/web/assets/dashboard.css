@@ -58,7 +58,7 @@ button:hover { border-color: var(--teal); }
 .project-card:hover { background: var(--raised); border-color: var(--teal); }
 .project-name { min-width: 0; overflow-wrap: anywhere; }
 .project-name .path { margin-top: .3rem; }
-.status-counts { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem; margin: 0; }
+.status-counts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .5rem; margin: 0; overflow-wrap: anywhere; }
 .status-counts dt { color: var(--muted); font-size: .875rem; }
 .status-counts dd { margin: .12rem 0 0; font-size: 1.15rem; font-weight: 650; }
 .status-counts .active-count dd { display: flex; align-items: center; gap: .45rem; color: var(--blue); }
@@ -101,6 +101,10 @@ progress { width: 100%; height: .45rem; accent-color: var(--teal); }
 @keyframes work-beat {
   0%, 100% { transform: scaleY(.4); }
   50% { transform: scaleY(1); }
+}
+
+@media (min-width: 64rem) {
+  .task-groups { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }
 
 @media (max-width: 50rem) {

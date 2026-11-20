@@ -3,8 +3,10 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -14,16 +16,20 @@ import (
 )
 
 func TestReportVersionCompatibility(t *testing.T) {
+	parts := strings.Split(version.Client, ".")
+	major, _ := strconv.Atoi(parts[0])
+	minor, _ := strconv.Atoi(parts[1])
+	patch, _ := strconv.Atoi(parts[2])
 	cases := []struct {
 		name          string
 		serverVersion string
 		resultCode    int
 		diagnostic    string
 	}{
-		{"minor mismatch", "0.4.0", http.StatusOK, "upgrade the client"},
-		{"major mismatch", "1.1.0", http.StatusOK, "upgrade the client"},
+		{"minor mismatch", fmt.Sprintf("%d.%d.0", major, minor+1), http.StatusOK, "upgrade the client"},
+		{"major mismatch", fmt.Sprintf("%d.0.0", major+1), http.StatusOK, "upgrade the client"},
 		{"older server", "0.0.9", http.StatusOK, "upgrade the server"},
-		{"patch only", "0.3.9", http.StatusOK, ""},
+		{"patch only", fmt.Sprintf("%d.%d.%d", major, minor, patch+1), http.StatusOK, ""},
 		{"unknown version, supported report", "", http.StatusOK, ""},
 		{"unknown version, unavailable report", "", http.StatusNotFound, "server version unavailable"},
 	}

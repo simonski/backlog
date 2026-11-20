@@ -9,3 +9,9 @@ timestamp_utc,tool,duration_seconds,outcome
 2026-11-20T13:16:18+00:00,check_browser.py,12.104,passed
 2026-11-20T13:18:11+00:00,check_browser.py,11.976,passed
 2026-11-20T13:26:01+00:00,check_browser.py,12.246,passed
+2026-11-20T22:16:02.079Z,go test ./...,1.106,passed
+2026-11-20T22:16:02.080Z,go build ./...,0.766,passed
+2026-11-20T22:16:02.080Z,setup smoke,0.150,passed
+2026-11-20T22:16:02.080Z,git diff --check,0.124,passed
+2026-11-20T22:20:15+00:00,check_browser.py,27.639,failed
+2026-11-20T22:20:54+00:00,check_browser.py,13.509,passed

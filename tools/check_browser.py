@@ -73,7 +73,7 @@ def verify(binary, upgrade_binary):
 
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(channel="chrome")
-            page = browser.new_page(viewport={"width": 1300, "height": 800})
+            page = browser.new_page(viewport={"width": 1100, "height": 800})
             errors = []
             page.on("pageerror", lambda error: errors.append(str(error)))
 
@@ -92,11 +92,19 @@ def verify(binary, upgrade_binary):
                 initial = report(binary, url, project, "task", "-id", "login", "-title", "Add sign-in")
                 card = page.locator("main").get_by_role("link", name="test-project", exact=False)
                 expect(card).to_be_visible(timeout=3000)
+                expect(card.locator(".status-counts dt")).to_have_text(
+                    ["Blocked", "To do", "Doing", "Done", "No longer needed"]
+                )
                 card.click()
                 expect(page.get_by_role("heading", name="test-project", exact=True)).to_be_visible()
                 expect(page.locator(".task-group h2")).to_have_text(
                     ["Blocked 0", "To do 1", "Doing 0", "Done 0", "No longer needed 0"]
                 )
+                positions = page.locator(".task-group").evaluate_all(
+                    "(groups) => groups.map(group => [group.offsetLeft, group.offsetTop])"
+                )
+                assert len({top for _, top in positions}) == 1
+                assert positions == sorted(positions)
 
                 renamed = report(binary, url, subdir, "task", "-id", "login", "-title", "Add email sign-in",
                                  "-status", "blocked", "-blocker", "Waiting for test credentials", "-progress", "60")
@@ -115,6 +123,9 @@ def verify(binary, upgrade_binary):
                 expect(page.locator(".task-group.done")).to_contain_text("Research sign-in")
                 expect(page.locator(".task-group.done progress")).to_have_attribute("value", "100")
                 expect(page.locator(".task-group.todo")).to_contain_text("Explore sign-in alternatives")
+                page.get_by_role("link", name="Projects", exact=True).click()
+                expect(card.locator(".status-counts dd")).to_have_text(["0", "1", "0", "1", "1"])
+                card.click()
 
                 report(binary, url, project, "task", "-id", "login", "-status", "doing")
                 doing = page.locator(".task-group.doing")

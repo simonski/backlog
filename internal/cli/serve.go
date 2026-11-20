@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -19,23 +20,27 @@ import (
 	"harness.engineering/internal/version"
 )
 
+func serverFlags(flags *flag.FlagSet, address, database *string) func() error {
+	flags.StringVar(database, "db", "", "SQLite path (defaults to harness-engineering/telemetry.db in the user config directory)")
+	return addressFlags(flags, address, local.DefaultListenAddress, "bind address and port")
+}
+
 func serve(ctx context.Context, args []string, diagnostics io.Writer) error {
 	flags := newFlags("serve", diagnostics, " [options]")
-	var address string
-	resolveAddress := addressFlags(flags, &address, local.DefaultListenAddress, "bind address and port")
-	path := flags.String("db", "", "SQLite path (defaults to harness-engineering/telemetry.db in the user config directory)")
+	var address, path string
+	resolveAddress := serverFlags(flags, &address, &path)
 	if err := parseFlags(flags, args); err != nil {
 		return err
 	}
 	if err := resolveAddress(); err != nil {
 		return err
 	}
-	if *path == "" {
+	if path == "" {
 		config, err := os.UserConfigDir()
 		if err != nil {
 			return fmt.Errorf("locate user configuration directory: %w", err)
 		}
-		*path = filepath.Join(config, "harness-engineering", "telemetry.db")
+		path = filepath.Join(config, "harness-engineering", "telemetry.db")
 	}
 
 	executable, err := executablePath()
@@ -51,7 +56,7 @@ func serve(ctx context.Context, args []string, diagnostics io.Writer) error {
 	}
 
 	for {
-		replacement, port, err := runServer(ctx, address, *path, executable, known, buildID, diagnostics)
+		replacement, port, err := runServer(ctx, address, path, executable, known, buildID, diagnostics)
 		if err != nil || replacement.info == nil || ctx.Err() != nil {
 			return err
 		}
@@ -70,13 +75,17 @@ func serve(ctx context.Context, args []string, diagnostics io.Writer) error {
 	}
 }
 
-func runServer(ctx context.Context, address, path, executable string, known executableRevision, buildID string, diagnostics io.Writer) (executableRevision, int, error) {
-	var replacement executableRevision
+func listenServer(address string) (net.Listener, error) {
 	network := "tcp"
 	if strings.HasPrefix(address, "0.0.0.0:") {
 		network = "tcp4"
 	}
-	listener, err := net.Listen(network, address)
+	return net.Listen(network, address)
+}
+
+func runServer(ctx context.Context, address, path, executable string, known executableRevision, buildID string, diagnostics io.Writer) (executableRevision, int, error) {
+	var replacement executableRevision
+	listener, err := listenServer(address)
 	if err != nil {
 		return replacement, 0, err
 	}

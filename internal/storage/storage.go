@@ -178,7 +178,8 @@ func listProjects(ctx context.Context, tx *sql.Tx) ([]model.Project, error) {
 			COUNT(CASE WHEN t.status = 'todo' AND t.omitted = 0 THEN 1 END),
 			COUNT(CASE WHEN t.status = 'doing' AND t.omitted = 0 THEN 1 END),
 			COUNT(CASE WHEN t.status = 'blocked' AND t.omitted = 0 THEN 1 END),
-			COUNT(CASE WHEN t.status = 'done' THEN 1 END)
+			COUNT(CASE WHEN t.status = 'done' THEN 1 END),
+			COUNT(CASE WHEN t.omitted = 1 THEN 1 END)
 		FROM projects p LEFT JOIN tasks t ON t.project_id = p.id
 		GROUP BY p.id
 		ORDER BY p.latest_report DESC, p.id DESC
@@ -192,7 +193,7 @@ func listProjects(ctx context.Context, tx *sql.Tx) ([]model.Project, error) {
 	for rows.Next() {
 		var project model.Project
 		if err := rows.Scan(&project.ID, &project.Root, &project.Archived, &project.LatestReport,
-			&project.Todo, &project.Doing, &project.Blocked, &project.Done); err != nil {
+			&project.Todo, &project.Doing, &project.Blocked, &project.Done, &project.Omitted); err != nil {
 			return nil, err
 		}
 		projects = append(projects, project)

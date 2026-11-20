@@ -81,6 +81,7 @@ type Project struct {
 	Doing        int
 	Blocked      int
 	Done         int
+	Omitted      int
 }
 
 func (project Project) Name() string {

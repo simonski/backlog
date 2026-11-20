@@ -104,10 +104,11 @@
             <p class="path">{{.Root}}</p>
           </div>
           <dl class="status-counts">
+            <div><dt>Blocked</dt><dd>{{.Blocked}}</dd></div>
             <div><dt>To do</dt><dd>{{.Todo}}</dd></div>
             <div{{if .Doing}} class="active-count"{{end}}><dt>Doing</dt><dd>{{.Doing}}{{if .Doing}}{{template "activity"}}{{end}}</dd></div>
-            <div><dt>Blocked</dt><dd>{{.Blocked}}</dd></div>
             <div><dt>Done</dt><dd>{{.Done}}</dd></div>
+            <div><dt>No longer needed</dt><dd>{{.Omitted}}</dd></div>
           </dl>
           {{with reportTime .LatestReport}}
             <p class="last-report">Last report <time datetime="{{.Format "2006-01-02T15:04:05Z07:00"}}">{{.Format "02 Jan 2006, 15:04 UTC"}}</time></p>

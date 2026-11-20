@@ -24,6 +24,7 @@ import (
 const usage = `Usage: backlog <command> [options]
 
 Commands:
+  setup          Set up the background service and harness reporting skill
   serve          Run the dashboard and reporting server
   task           Report a single task update
   snapshot       Report all currently known project tasks as a JSON array
@@ -46,6 +47,8 @@ func (app App) Run(ctx context.Context, args []string, input io.Reader, out, dia
 	switch args[0] {
 	case "help", "-help", "-h":
 		fmt.Fprint(out, usage)
+	case "setup":
+		err = setup(ctx, args[1:], app.ReportingSkill, input, out, diagnostics)
 	case "serve":
 		err = serve(ctx, args[1:], diagnostics)
 	case "task", "snapshot":

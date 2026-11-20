@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="backlog-build" content="{{.BuildID}}">
+  <title>{{.Title}} · Backlog</title>
+  <link rel="stylesheet" href="/assets/dashboard.css">
+  <script src="/assets/dashboard.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <a class="brand" href="/">Backlog</a>
+      <span class="connection" id="connection" role="status">Live</span>
+    </div>
+  </header>
+  <div class="shell">
+    <nav id="navigation" class="navigation" aria-label="Projects">
+      <a href="/" {{if eq .Section "projects"}}aria-current="page"{{end}}>Projects</a>
+      {{range .Projects}}
+        <a href="/projects/{{.ID}}" title="{{.Root}}" {{if $.Selected}}{{if eq $.Selected.ID .ID}}aria-current="page"{{end}}{{end}}>{{.Name}}</a>
+      {{end}}
+      <a class="archive-link" href="/archived" {{if eq .Section "archived"}}aria-current="page"{{end}}>Archived</a>
+    </nav>
+    <main id="content" tabindex="-1">
+      {{if .Selected}}
+        <header class="page-heading">
+          <div>
+            <h1>{{.Title}}</h1>
+            <p class="path">{{.Selected.Root}}</p>
+          </div>
+          {{if .CanEdit}}
+            <form method="post" action="/projects/{{.Selected.ID}}/archive">
+              {{if .Selected.Archived}}
+                <button name="archived" value="false">Restore project</button>
+              {{else}}
+                <button name="archived" value="true">Archive project</button>
+              {{end}}
+            </form>
+          {{end}}
+        </header>
+        {{if .Selected.Archived}}<p class="archived-notice">This project is archived.</p>{{end}}
+        <div class="task-groups">
+          {{range .Groups}}
+            {{$status := .Status}}
+            <section class="task-group {{.Status}}" aria-labelledby="group-{{.Status}}">
+              <h2 id="group-{{.Status}}">{{.Label}} <span class="count">{{len .Tasks}}</span></h2>
+              {{if .Tasks}}
+                <ul class="task-list">
+                  {{range .Tasks}}
+                    <li class="task" data-task-id="{{.ID}}" data-task-status="{{$status}}">
+                      <h3>{{if eq $status "doing"}}{{template "activity"}}{{end}}{{.Title}}</h3>
+                      {{if .Description}}<p>{{.Description}}</p>{{end}}
+                      {{if and (eq .Status "blocked") .Blocker}}<p class="blocker-note"><strong>Blocker</strong> {{.Blocker}}</p>{{end}}
+                      {{with .DisplayProgress}}
+                        <div class="progress">
+                          <progress max="100" value="{{.}}" aria-label="Completion"></progress>
+                          <span>{{.}}%</span>
+                        </div>
+                      {{end}}
+                    </li>
+                  {{end}}
+                </ul>
+              {{else}}<p class="empty-group">No tasks</p>{{end}}
+            </section>
+          {{end}}
+        </div>
+      {{else}}
+        <header class="page-heading">
+          <h1>{{.Title}}</h1>
+          {{if eq .Section "archived"}}
+            <span class="total">{{len .Archived}} archived</span>
+          {{else}}
+            <span class="total">{{len .Projects}} tracked</span>
+          {{end}}
+        </header>
+        {{if eq .Section "archived"}}
+          {{if .Archived}}{{template "project-list" .Archived}}
+          {{else}}<p class="empty-state">No archived projects.</p>{{end}}
+        {{else}}
+          {{if .Projects}}{{template "project-list" .Projects}}
+          {{else}}<p class="empty-state">Projects appear here after the first task report from the harness.</p>{{end}}
+        {{end}}
+      {{end}}
+    </main>
+  </div>
+  <footer class="app-version" aria-label="Backlog server version">v{{.Version}}</footer>
+</body>
+</html>
+
+{{define "project-list"}}
+  <ul class="project-list">
+    {{range .}}
+      <li>
+        <a class="project-card" href="/projects/{{.ID}}">
+          <div class="project-name">
+            <h2>{{.Name}}</h2>
+            <p class="path">{{.Root}}</p>
+          </div>
+          <dl class="status-counts">
+            <div><dt>To do</dt><dd>{{.Todo}}</dd></div>
+            <div{{if .Doing}} class="active-count"{{end}}><dt>Doing</dt><dd>{{.Doing}}{{if .Doing}}{{template "activity"}}{{end}}</dd></div>
+            <div><dt>Blocked</dt><dd>{{.Blocked}}</dd></div>
+            <div><dt>Done</dt><dd>{{.Done}}</dd></div>
+          </dl>
+          {{with reportTime .LatestReport}}
+            <p class="last-report">Last report <time datetime="{{.Format "2006-01-02T15:04:05Z07:00"}}">{{.Format "02 Jan 2006, 15:04 UTC"}}</time></p>
+          {{end}}
+        </a>
+      </li>
+    {{end}}
+  </ul>
+{{end}}
+
+{{define "activity"}}<span class="activity" aria-hidden="true"><i></i><i></i><i></i></span>{{end}}

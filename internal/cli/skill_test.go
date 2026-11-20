@@ -13,7 +13,7 @@ func TestInstallSkillPreservesExistingCopy(t *testing.T) {
 	contents := []byte("# Embedded skill\n")
 	app := App{ReportingSkill: contents}
 	directory := t.TempDir()
-	path := filepath.Join(directory, "report-harness-progress", "SKILL.md")
+	path := filepath.Join(directory, "backlog", "SKILL.md")
 	args := []string{"install-skill", "-dir", directory}
 
 	for _, tc := range []struct {

@@ -65,7 +65,7 @@ Snapshot files and snapshot input on stdin use JSON in either output mode.
 
 ## Reporting skill
 
-The wizard installs `report-harness-progress` under `~/.agents/skills`. Configure the harness to use that skill from the project directory. For a project-only install, run `backlog setup -dir .agents/skills` from that project. For port 15001, set `HARNESS_ADDR=127.0.0.1:15001` in the harness environment.
+The wizard installs the `backlog` skill at `~/.agents/skills/backlog/SKILL.md`. Configure the harness to use that skill from the project directory. For a project-only install, run `backlog setup -dir .agents/skills` from that project. For port 15001, set `HARNESS_ADDR=127.0.0.1:15001` in the harness environment.
 
 To install just the skill without prompts, run:
 
@@ -74,6 +74,8 @@ backlog install-skill
 ```
 
 `backlog install-skill` also accepts `-dir`.
+
+For upgrades from `report-harness-progress`, install `backlog`, carry over any customizations, and retire the old skill directory to avoid loading both skills.
 
 ## Upgrade
 

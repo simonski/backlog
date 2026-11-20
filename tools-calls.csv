@@ -40,3 +40,14 @@ timestamp_utc,tool,duration_seconds,outcome
 2026-11-20T23:00:26.075Z,built CLI help and version,0.000,passed
 2026-11-20T23:00:26.075Z,dashboard completion report,0.000,passed
 2026-11-20T23:00:26.075Z,live ticket listing,0.000,passed
+2026-11-20T23:04:12.588Z,skill validator,0.002,failed
+2026-11-20T23:04:12.588Z,skill validator retry,0.000,passed
+2026-11-20T23:04:12.588Z,go test ./...,1.828,passed
+2026-11-20T23:04:12.588Z,go build ./...,2.042,passed
+2026-11-20T23:04:12.588Z,skill installation rename,0.000,passed
+2026-11-20T23:04:12.588Z,build and embedded skill check,1.973,passed
+2026-11-20T23:04:12.588Z,skill rename dashboard report,0.000,passed
+2026-11-20T23:05:01.907Z,go test ./...,0.320,passed
+2026-11-20T23:05:01.907Z,make build,1.699,passed
+2026-11-20T23:05:01.907Z,git diff --check,0.000,passed
+2026-11-20T23:05:01.907Z,rebuilt version and skill check,0.167,passed

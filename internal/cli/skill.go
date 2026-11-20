@@ -48,7 +48,7 @@ func ensureSkill(directory string, contents []byte) (string, bool, error) {
 		}
 		directory = filepath.Join(home, ".agents", "skills")
 	}
-	path, err := filepath.Abs(filepath.Join(directory, "report-harness-progress", "SKILL.md"))
+	path, err := filepath.Abs(filepath.Join(directory, "backlog", "SKILL.md"))
 	if err != nil {
 		return "", false, err
 	}

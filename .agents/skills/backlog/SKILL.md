@@ -1,9 +1,9 @@
 ---
-name: report-harness-progress
+name: backlog
 description: Send progress telemetry to the local Backlog dashboard during project work. Use when a project uses this dashboard or the user asks to track work there.
 ---
 
-# Report harness progress
+# Backlog
 
 Run `backlog` from the project being reported. Use the project root for a non-Git project. Keep work context in the harness and use the dashboard as a view for the person following along.
 

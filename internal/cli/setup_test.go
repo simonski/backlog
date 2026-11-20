@@ -14,7 +14,7 @@ import (
 
 func TestSetupInstallsSkillOnlyAfterConfirmation(t *testing.T) {
 	directory := t.TempDir()
-	path := filepath.Join(directory, "report-harness-progress", "SKILL.md")
+	path := filepath.Join(directory, "backlog", "SKILL.md")
 	app := App{ReportingSkill: []byte("# Reporting skill\n")}
 	args := []string{"setup", "-dir", directory}
 

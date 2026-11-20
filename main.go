@@ -10,7 +10,7 @@ import (
 	"harness.engineering/internal/cli"
 )
 
-//go:embed .agents/skills/report-harness-progress/SKILL.md
+//go:embed .agents/skills/backlog/SKILL.md
 var reportingSkill []byte
 
 func main() {

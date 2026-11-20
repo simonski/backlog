@@ -39,7 +39,7 @@ func setup(ctx context.Context, args []string, skill []byte, input io.Reader, ou
 	if skillDirectory == "" {
 		skillDirectory = "~/.agents/skills"
 	}
-	reporting, err := confirmSetup(ctx, answers, out, fmt.Sprintf("Install the harness reporting skill in %s?", skillDirectory))
+	reporting, err := confirmSetup(ctx, answers, out, fmt.Sprintf("Install the Backlog skill in %s?", skillDirectory))
 	if err != nil {
 		return err
 	}
@@ -63,7 +63,7 @@ func setup(ctx context.Context, args []string, skill []byte, input io.Reader, ou
 			skillErr = fmt.Errorf("set up the reporting skill: %w", err)
 		} else {
 			skillErr = printSkillInstallation(out, path, installed)
-			fmt.Fprintln(out, "Configure the harness to use report-harness-progress from the project directory.")
+			fmt.Fprintln(out, "Configure the harness to use the backlog skill from the project directory.")
 		}
 	}
 	return errors.Join(serviceErr, skillErr, ctx.Err())

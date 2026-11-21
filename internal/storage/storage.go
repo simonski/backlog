@@ -43,6 +43,46 @@ CREATE TABLE IF NOT EXISTS daily_task_activity (
 	PRIMARY KEY (day, project_id, task_id),
 	FOREIGN KEY (project_id, task_id) REFERENCES tasks(project_id, id)
 );
+
+CREATE TABLE IF NOT EXISTS task_timing (
+	project_id INTEGER NOT NULL,
+	task_id TEXT NOT NULL,
+	active_nanos INTEGER NOT NULL DEFAULT 0,
+	started_at INTEGER,
+	PRIMARY KEY (project_id, task_id),
+	FOREIGN KEY (project_id, task_id) REFERENCES tasks(project_id, id)
+);
+
+CREATE TABLE IF NOT EXISTS archived_tasks (
+	project_id INTEGER NOT NULL,
+	task_id TEXT NOT NULL,
+	PRIMARY KEY (project_id, task_id),
+	FOREIGN KEY (project_id, task_id) REFERENCES tasks(project_id, id)
+);
+
+CREATE TABLE IF NOT EXISTS project_documents (
+	project_id INTEGER NOT NULL REFERENCES projects(id),
+	name TEXT NOT NULL,
+	markdown TEXT NOT NULL,
+	PRIMARY KEY (project_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS project_document_activity (
+	project_id INTEGER PRIMARY KEY REFERENCES projects(id),
+	uploaded_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS task_completions (
+	project_id INTEGER NOT NULL,
+	task_id TEXT NOT NULL,
+	PRIMARY KEY (project_id, task_id),
+	FOREIGN KEY (project_id, task_id) REFERENCES tasks(project_id, id)
+);
+
+CREATE TABLE IF NOT EXISTS project_colors (
+	project_id INTEGER PRIMARY KEY REFERENCES projects(id),
+	preset TEXT NOT NULL UNIQUE
+);
 `
 
 type Store struct {
@@ -75,6 +115,24 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	// Serialize transactions on this server so every report sees the prior commit.
 	db.SetMaxOpenConns(1)
 	if _, err := db.ExecContext(ctx, schema); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO task_completions (project_id, task_id)
+		SELECT project_id, id FROM tasks WHERE status = 'done'
+		UNION SELECT project_id, task_id FROM daily_task_activity WHERE status = 'done'
+		ON CONFLICT (project_id, task_id) DO NOTHING
+	`); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO task_timing (project_id, task_id, started_at)
+	SELECT t.project_id, t.id, ? FROM tasks t WHERE t.status = 'doing' AND t.omitted = 0
+	AND NOT EXISTS (SELECT 1 FROM archived_tasks ar WHERE ar.project_id = t.project_id AND ar.task_id = t.id)
+		ON CONFLICT (project_id, task_id) DO NOTHING
+	`, time.Now().UnixNano()); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -139,6 +197,14 @@ func (store *Store) apply(ctx context.Context, root string, tasks []model.TaskUp
 		if err := applyTask(ctx, tx, projectID, task, allowCreate); err != nil {
 			return model.Result{}, err
 		}
+		if task.Status != nil && *task.Status == model.Done {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO task_completions (project_id, task_id) VALUES (?, ?)
+				ON CONFLICT (project_id, task_id) DO NOTHING
+			`, projectID, task.ID); err != nil {
+				return model.Result{}, err
+			}
+		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO daily_task_activity (day, project_id, task_id, status)
 			SELECT ?, project_id, id, status FROM tasks WHERE project_id = ? AND id = ?
@@ -146,6 +212,9 @@ func (store *Store) apply(ctx context.Context, root string, tasks []model.TaskUp
 		`, day, projectID, task.ID); err != nil {
 			return model.Result{}, err
 		}
+	}
+	if err := syncTaskTiming(ctx, tx, projectID, now.UnixNano()); err != nil {
+		return model.Result{}, err
 	}
 	if _, err := tx.ExecContext(ctx, "UPDATE projects SET latest_report = ? WHERE id = ?", now.UnixNano(), projectID); err != nil {
 		return model.Result{}, err
@@ -196,38 +265,54 @@ func (store *Store) SetArchived(ctx context.Context, projectID int64, archived b
 }
 
 // Dashboard reads the navigation and selected project from one consistent view.
-func (store *Store) Dashboard(ctx context.Context, selectedID int64) ([]model.Project, []model.Task, error) {
+func (store *Store) Dashboard(ctx context.Context, selectedID int64) ([]model.Project, []model.Task, []string, error) {
 	tx, err := store.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	defer tx.Rollback()
 
-	projects, err := listProjects(ctx, tx)
+	projects, err := listProjects(ctx, tx, 0)
 	if err != nil || selectedID == 0 {
-		return projects, nil, err
+		return projects, nil, nil, err
 	}
 	for _, project := range projects {
-		if project.ID == selectedID {
-			tasks, err := listTasks(ctx, tx, selectedID)
-			return projects, tasks, err
+		if project.ID == selectedID && !project.Archived {
+			tasks, err := listTasks(ctx, tx, selectedID, false)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			documents, err := listDocumentNames(ctx, tx, selectedID)
+			return projects, tasks, documents, err
 		}
 	}
-	return nil, nil, sql.ErrNoRows
+	return nil, nil, nil, sql.ErrNoRows
 }
 
-func listProjects(ctx context.Context, tx *sql.Tx) ([]model.Project, error) {
+func listProjects(ctx context.Context, tx *sql.Tx, promoteUploadsAfter int64) ([]model.Project, error) {
 	rows, err := tx.QueryContext(ctx, `
 		SELECT p.id, p.root, p.archived, p.latest_report,
 			COUNT(CASE WHEN t.status = 'todo' AND t.omitted = 0 THEN 1 END),
-			COUNT(CASE WHEN t.status = 'doing' AND t.omitted = 0 THEN 1 END),
+			COUNT(CASE WHEN t.status = 'doing' AND t.omitted = 0 THEN 1 END) AS doing_count,
 			COUNT(CASE WHEN t.status = 'blocked' AND t.omitted = 0 THEN 1 END),
-			COUNT(CASE WHEN t.status = 'done' THEN 1 END),
-			COUNT(CASE WHEN t.omitted = 1 THEN 1 END)
-		FROM projects p LEFT JOIN tasks t ON t.project_id = p.id
+			(SELECT COUNT(*) FROM task_completions c WHERE c.project_id = p.id),
+			COUNT(CASE WHEN t.omitted = 1 THEN 1 END),
+			COALESCE((SELECT name FROM project_documents WHERE project_id = p.id
+				AND lower(name) IN ('readme', 'readme.md', 'readme.markdown')
+				ORDER BY CASE lower(name) WHEN 'readme.md' THEN 0 ELSE 1 END, name LIMIT 1), ''),
+			COALESCE((SELECT name FROM project_documents WHERE project_id = p.id
+				AND lower(name) IN ('spec', 'spec.md', 'spec.markdown', 'specification', 'specification.md', 'specification.markdown')
+				ORDER BY CASE lower(name) WHEN 'specification.md' THEN 0 WHEN 'spec.md' THEN 1 ELSE 2 END, name LIMIT 1), ''),
+			COALESCE(color.preset, '')
+		FROM projects p LEFT JOIN tasks t ON t.project_id = p.id AND NOT EXISTS (
+			SELECT 1 FROM archived_tasks ar WHERE ar.project_id = t.project_id AND ar.task_id = t.id
+		)
+		LEFT JOIN project_document_activity d ON d.project_id = p.id
+		LEFT JOIN project_colors color ON color.project_id = p.id
 		GROUP BY p.id
-		ORDER BY p.latest_report DESC, p.id DESC
-	`)
+		ORDER BY CASE WHEN ?1 <> 0 AND d.uploaded_at > ?1 THEN d.uploaded_at ELSE 0 END DESC,
+			(doing_count > 0) DESC, p.latest_report DESC, p.id DESC
+	`, promoteUploadsAfter)
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +322,8 @@ func listProjects(ctx context.Context, tx *sql.Tx) ([]model.Project, error) {
 	for rows.Next() {
 		var project model.Project
 		if err := rows.Scan(&project.ID, &project.Root, &project.Archived, &project.LatestReport,
-			&project.Todo, &project.Doing, &project.Blocked, &project.Done, &project.Omitted); err != nil {
+			&project.Todo, &project.Doing, &project.Blocked, &project.Done, &project.Omitted,
+			&project.Readme, &project.Specification, &project.ColorPreset); err != nil {
 			return nil, err
 		}
 		projects = append(projects, project)
@@ -245,11 +331,14 @@ func listProjects(ctx context.Context, tx *sql.Tx) ([]model.Project, error) {
 	return projects, rows.Err()
 }
 
-func listTasks(ctx context.Context, tx *sql.Tx, projectID int64) ([]model.Task, error) {
+func listTasks(ctx context.Context, tx *sql.Tx, projectID int64, includeArchived bool) ([]model.Task, error) {
 	rows, err := tx.QueryContext(ctx, `
-		SELECT id, title, description, status, progress, blocker, omitted
-		FROM tasks WHERE project_id = ? ORDER BY title COLLATE NOCASE, id
-	`, projectID)
+		SELECT t.id, t.title, t.description, t.status, t.progress, t.blocker, t.omitted, tm.active_nanos, tm.started_at
+		FROM tasks t LEFT JOIN task_timing tm ON tm.project_id = t.project_id AND tm.task_id = t.id
+		WHERE t.project_id = ? AND (? OR NOT EXISTS (
+			SELECT 1 FROM archived_tasks ar WHERE ar.project_id = t.project_id AND ar.task_id = t.id
+		)) ORDER BY t.title COLLATE NOCASE, t.id
+	`, projectID, includeArchived)
 	if err != nil {
 		return nil, err
 	}
@@ -258,7 +347,8 @@ func listTasks(ctx context.Context, tx *sql.Tx, projectID int64) ([]model.Task, 
 	var tasks []model.Task
 	for rows.Next() {
 		var task model.Task
-		if err := rows.Scan(&task.ID, &task.Title, &task.Description, &task.Status, &task.Progress, &task.Blocker, &task.Omitted); err != nil {
+		if err := rows.Scan(&task.ID, &task.Title, &task.Description, &task.Status, &task.Progress, &task.Blocker,
+			&task.Omitted, &task.ActiveNanos, &task.StartedAt); err != nil {
 			return nil, err
 		}
 		tasks = append(tasks, task)
@@ -285,7 +375,7 @@ func (store *Store) ListTasks(ctx context.Context, root string, ids []string) ([
 	}
 	var tasks []model.Task
 	if err == nil {
-		tasks, err = listTasks(ctx, tx, projectID)
+		tasks, err = listTasks(ctx, tx, projectID, true)
 		if err != nil {
 			return nil, err
 		}

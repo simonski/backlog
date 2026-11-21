@@ -32,7 +32,7 @@ func requestServer(ctx context.Context, address, method, path string, body, targ
 			return err
 		}
 		if len(payload) > wire.MaxReportBytes {
-			return errors.New("report exceeds 1 MiB")
+			return errors.New("request exceeds 1 MiB")
 		}
 	}
 	err := request(ctx, client, method, base+path, payload, target)

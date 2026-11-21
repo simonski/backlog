@@ -17,7 +17,7 @@
         <img src="/assets/backlog-mark.png" alt="" width="32" height="32">
         Backlog
       </a>
-      <span class="connection" id="connection" role="status">Live</span>
+      <span class="connection" id="connection" role="status" hidden></span>
     </div>
   </header>
   <div class="shell">
@@ -26,36 +26,48 @@
       {{range .Projects}}
         <a href="/projects/{{.ID}}" title="{{.Root}}" {{if $.Selected}}{{if eq $.Selected.ID .ID}}aria-current="page"{{end}}{{end}}>{{.Name}}</a>
       {{end}}
-      <a class="archive-link" href="/archived" {{if eq .Section "archived"}}aria-current="page"{{end}}>Archived</a>
     </nav>
     <main id="content" tabindex="-1">
       {{if .Selected}}
         <header class="page-heading">
           <div>
-            <h1>{{.Title}}</h1>
+            <div class="project-heading-title">
+              <h1>{{.Title}}</h1>
+              {{template "blocked-attention" .Selected.Blocked}}
+              {{if .CanEdit}}
+                <button id="archive-project-button" class="archive-button" type="button" aria-label="Archive project" title="Archive project" data-archive-confirm data-archive-kind="project" data-archive-name="{{.Title}}" data-archive-action="/projects/{{.Selected.ID}}/archive">{{template "archive-icon"}}</button>
+              {{end}}
+            </div>
             <p class="path">{{.Selected.Root}}</p>
           </div>
-          {{if .CanEdit}}
-            <form method="post" action="/projects/{{.Selected.ID}}/archive">
-              {{if .Selected.Archived}}
-                <button name="archived" value="false">Restore project</button>
-              {{else}}
-                <button name="archived" value="true">Archive project</button>
-              {{end}}
-            </form>
-          {{end}}
         </header>
-        {{if .Selected.Archived}}<p class="archived-notice">This project is archived.</p>{{end}}
+        {{if .Documents}}
+          <nav class="project-documents" aria-label="Project documents">
+            {{range .Documents}}<a href="{{documentPath $.Selected.ID .}}">{{.}}</a>{{end}}
+          </nav>
+        {{end}}
         <div class="task-groups">
           {{range .Groups}}
             {{$status := .Status}}
-            <section class="task-group {{.Status}}" aria-labelledby="group-{{.Status}}">
-              <h2 id="group-{{.Status}}">{{.Label}} <span class="count">{{len .Tasks}}</span></h2>
+            {{$archiveStatus := .ArchiveStatus}}
+            {{$canArchive := and $.CanEdit $archiveStatus}}
+            <section class="task-group {{$status}}" aria-labelledby="group-{{$status}}"{{if $canArchive}} id="column-{{$status}}" data-archive-menu data-archive-kind="column" data-archive-action="/projects/{{$.Selected.ID}}/archive/{{$archiveStatus}}" data-archive-name="{{.Label}}" aria-haspopup="menu" tabindex="0"{{if not .Tasks}} data-archive-empty{{end}}{{end}}>
+              <div class="task-group-heading">
+                <h2 id="group-{{.Status}}">{{.Label}} <span class="count">{{len .Tasks}}</span></h2>
+                {{if and $canArchive (eq $status "done")}}
+                  <button id="archive-done-button" class="archive-button" type="button" aria-label="Archive all Done tickets" title="Archive all Done tickets" data-archive-confirm{{if not .Tasks}} disabled{{end}}>{{template "archive-icon"}}</button>
+                {{end}}
+              </div>
               {{if .Tasks}}
                 <ul class="task-list">
                   {{range .Tasks}}
-                    <li class="task" data-task-id="{{.ID}}" data-task-status="{{$status}}">
+                    <li class="task" data-task-id="{{.ID}}" data-task-status="{{$status}}"{{if $.CanEdit}} data-archive-menu data-archive-kind="ticket" data-archive-ticket="{{ticketKey .ID}}" data-archive-name="{{.Title}}" data-archive-action="/projects/{{$.Selected.ID}}/archive/ticket" aria-haspopup="menu" tabindex="0"{{end}}>
                       <h3>{{if eq $status "doing"}}{{template "activity"}}{{end}}{{.Title}}</h3>
+                      {{if .StartedAt}}
+                        <p class="task-timing">Elapsed <span role="timer" data-started-at="{{milliseconds .StartedAt}}" data-active-ms="{{milliseconds .ActiveNanos}}">{{elapsedTime .ActiveNanos .StartedAt}}</span></p>
+                      {{else if eq $status "done"}}
+                        <p class="task-timing">Total time {{if .ActiveNanos}}<span>{{elapsedTime .ActiveNanos .StartedAt}}</span>{{else}}not recorded{{end}}</p>
+                      {{end}}
                       {{if .Description}}<p>{{.Description}}</p>{{end}}
                       {{if and (eq .Status "blocked") .Blocker}}<p class="blocker-note"><strong>Blocker</strong> {{.Blocker}}</p>{{end}}
                       {{with .DisplayProgress}}
@@ -72,36 +84,64 @@
           {{end}}
         </div>
       {{else}}
-        <header class="page-heading{{if eq .Section "projects"}} homepage-heading{{end}}">
+        <header class="page-heading homepage-heading">
           <h1>{{.Title}}</h1>
-          {{if eq .Section "archived"}}
-            <span class="total">{{len .Archived}} archived</span>
-          {{else}}
-            {{template "project-activity" .Activity}}
-            <span class="total">{{len .Projects}} tracked</span>
-          {{end}}
+          {{template "project-activity" .Activity}}
+          <form class="activity-tools" method="get" action="/" aria-label="Activity range">
+            {{range .Activity.Options}}<button id="activity-range-{{.Key}}" name="range" value="{{.Key}}" aria-pressed="{{.Selected}}"{{if .Disabled}} disabled{{end}}>{{.Key}}</button>{{end}}
+          </form>
         </header>
-        {{if eq .Section "archived"}}
-          {{if .Archived}}{{template "project-list" .Archived}}
-          {{else}}<p class="empty-state">No archived projects.</p>{{end}}
-        {{else}}
-          {{if .Projects}}{{template "project-list" .Projects}}
-          {{else}}<p class="empty-state">Projects appear here after the first task report from the harness.</p>{{end}}
-        {{end}}
+        {{if .Projects}}{{template "project-list" .}}
+        {{else}}<p class="empty-state">Projects appear here after the first ticket report or document upload.</p>{{end}}
       {{end}}
     </main>
   </div>
+  {{if .CanEdit}}
+    <div class="archive-menu" id="archive-menu" role="menu" aria-label="Archive actions" hidden>
+      <button type="button" role="menuitem">{{template "archive-icon"}} <span>Archive</span></button>
+      <div class="project-color-options" id="project-color-options" role="group" aria-label="Project color" hidden>
+        <p>Project color</p>
+        <div class="project-color-swatches">
+          {{range .ColorPresets}}
+            <button type="button" role="menuitemradio" aria-checked="false" aria-label="{{.Name}}" title="{{.Name}}" data-project-color="{{.Key}}">
+              <svg width="16" height="16" aria-hidden="true"><rect width="16" height="16" rx="3" fill="{{.Value}}"/></svg>
+            </button>
+          {{end}}
+        </div>
+      </div>
+    </div>
+    <form id="project-color-request" method="post" hidden><input type="hidden" name="preset"></form>
+    <form id="archive-request" method="post" hidden>
+      <input type="hidden" name="archived" value="true" disabled>
+      <input type="hidden" name="ticket_key" disabled>
+    </form>
+    <dialog class="archive-dialog" id="archive-confirmation" aria-labelledby="archive-dialog-title" aria-describedby="archive-dialog-message">
+      <form method="dialog">
+        <h2 id="archive-dialog-title"></h2>
+        <p id="archive-dialog-message"></p>
+        <div class="archive-dialog-actions">
+          <button value="cancel" autofocus>Cancel</button>
+          <button class="confirm-archive" value="archive">Archive</button>
+        </div>
+      </form>
+    </dialog>
+  {{end}}
   <footer class="app-version" aria-label="Backlog server version">v{{.Version}}</footer>
 </body>
 </html>
 
 {{define "project-list"}}
   <ul class="project-list">
-    {{range .}}
-      <li>
-        <a class="project-card" href="/projects/{{.ID}}">
+    {{range .Projects}}
+      <li data-project-card="{{.ID}}"{{if $.CanEdit}} data-archive-menu data-archive-kind="project" data-archive-name="{{.Name}}" data-archive-action="/projects/{{.ID}}/archive" data-color-action="/projects/{{.ID}}/color" data-color-preset="{{.ColorPreset}}"{{end}}>
+        <div class="project-card">
           <div class="project-name">
-            <h2>{{template "project-pixel" .ID}}{{.Name}}</h2>
+            <div class="project-card-title">
+              <h2><a class="project-card-link" href="/projects/{{.ID}}"{{if $.CanEdit}} aria-haspopup="menu"{{end}}>{{template "project-pixel" .}}{{.Name}}</a></h2>
+              {{template "blocked-attention" .Blocked}}
+              {{if .Readme}}<a class="project-document-shortcut" href="{{documentPath .ID .Readme}}">{{template "document-icon"}} README</a>{{end}}
+              {{if .Specification}}<a class="project-document-shortcut" href="{{documentPath .ID .Specification}}">{{template "document-icon"}} SPEC</a>{{end}}
+            </div>
             <p class="path">{{.Root}}</p>
           </div>
           <dl class="status-counts">
@@ -112,17 +152,17 @@
             <div><dt>Rejected</dt><dd>{{.Omitted}}</dd></div>
           </dl>
           {{with reportTime .LatestReport}}
-            <p class="last-report">Last report <time datetime="{{.Format "2006-01-02T15:04:05Z07:00"}}">{{.Format "02 Jan 2006, 15:04 UTC"}}</time></p>
+            <p class="last-report">Last activity <time datetime="{{.Format "2006-01-02T15:04:05Z07:00"}}">{{.Format "02 Jan 2006, 15:04 UTC"}}</time></p>
           {{end}}
-        </a>
+        </div>
       </li>
     {{end}}
   </ul>
 {{end}}
 
 {{define "project-activity"}}
-  <div class="activity-chart" id="project-activity" role="region" aria-label="Ticket activity over the last 30 days">
-    <table class="activity-grid" aria-label="Tickets reported or changed by day and status">
+  <div class="activity-chart" id="project-activity" role="region" aria-label="Ticket activity">
+    <table class="activity-grid" aria-label="Tickets reported or changed by {{.Grain}} and status">
       <thead><tr>
         <th scope="col" aria-label="Project"></th>
         {{range .Dates}}
@@ -133,11 +173,13 @@
       </tr></thead>
       <tbody>
         {{range .Rows}}
+          {{$projectColor := .Project.Color}}
           <tr data-project-id="{{.Project.ID}}">
-            <th scope="row" aria-label="{{.Project.Name}}" title="{{.Project.Root}}">{{template "project-pixel" .Project.ID}}</th>
+            <th scope="row" aria-label="{{.Project.Name}}" title="{{.Project.Root}}">{{template "project-pixel" .Project}}</th>
             {{range .Cells}}
               <td data-day="{{.Date}}" title="{{.Label}}" aria-label="{{.Label}}">
                 <div class="ticket-pixels" aria-hidden="true">
+                  {{if .Counts}}<svg class="activity-project-tint" viewBox="0 0 1 1" preserveAspectRatio="none"><rect width="1" height="1" fill="{{$projectColor}}"/></svg>{{end}}
                   {{range .Counts}}{{$status := .Status}}{{range .Count}}<span class="ticket-pixel {{$status}}"></span>{{end}}{{end}}
                 </div>
               </td>
@@ -149,6 +191,12 @@
   </div>
 {{end}}
 
-{{define "project-pixel"}}<svg class="project-pixel" width="7" height="7" aria-hidden="true"><rect width="7" height="7" fill="{{projectColor .}}"/></svg>{{end}}
+{{define "project-pixel"}}<svg class="project-pixel" width="7" height="7" aria-hidden="true"><rect width="7" height="7" fill="{{.Color}}"/></svg>{{end}}
+
+{{define "blocked-attention"}}{{if .}}<span class="blocked-attention" role="img" aria-label="{{.}} blocked {{if eq . 1}}ticket{{else}}tickets{{end}}" title="Blocked tickets need attention"><span aria-hidden="true">!</span>{{.}}</span>{{end}}{{end}}
+
+{{define "archive-icon"}}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v10h16V9M3 5h18v4H3zM10 13h4"/></svg>{{end}}
+
+{{define "document-icon"}}<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6m-6 4h6"/></svg>{{end}}
 
 {{define "activity"}}<span class="activity" aria-hidden="true"><i></i><i></i><i></i></span>{{end}}

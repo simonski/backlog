@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Name}} · {{.ProjectName}} · Backlog</title>
+  <link rel="icon" href="/favicon.ico">
+  <link rel="stylesheet" href="/assets/dashboard.css">
+  <script src="/assets/dashboard.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <a class="brand" href="/"><img src="/assets/backlog-mark.png" alt="" width="32" height="32"> Backlog</a>
+    </div>
+  </header>
+  <main id="content" class="shell" tabindex="-1">
+    <nav class="document-breadcrumb" aria-label="Breadcrumb">
+      <a href="/">Projects</a><span aria-hidden="true">/</span>
+      <a href="/projects/{{.ProjectID}}">{{.ProjectName}}</a><span aria-hidden="true">/</span>
+      <span aria-current="page">{{.Name}}</span>
+    </nav>
+    <article class="document-copy" aria-label="{{.Name}}">{{.Content}}</article>
+  </main>
+</body>
+</html>

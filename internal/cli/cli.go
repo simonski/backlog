@@ -36,6 +36,7 @@ Commands:
   todo           Mark tickets to do
   doing          Mark tickets in progress
   done           Mark tickets complete
+  doc            Publish, replace, or clear uploaded project documents
   install-skill  Install the embedded harness reporting skill
   version        Show the binary's application and protocol versions
 
@@ -67,6 +68,8 @@ func (app App) Run(ctx context.Context, args []string, input io.Reader, out, dia
 		err = listTickets(ctx, args[1:], out, diagnostics)
 	case "update", "block", "todo", "doing", "done":
 		err = updateTickets(ctx, args[0], args[1:], out, diagnostics)
+	case "doc":
+		err = uploadDocument(ctx, args[1:], input, out, diagnostics)
 	case "install-skill":
 		err = installSkill(args[1:], app.ReportingSkill, out, diagnostics)
 	case "version":

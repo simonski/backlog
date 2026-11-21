@@ -7,6 +7,8 @@ description: Send progress telemetry to the local Backlog dashboard during proje
 
 Run `backlog` from the project being reported. Use the project root for a non-Git project. Keep work context in the harness and use the dashboard as a view for the person following along.
 
+Use the `backlog` binary for all Backlog commands. Do not use `curl`, Python, or direct HTTP requests to talk to Backlog.
+
 - Assign a stable task ID before the first report. Reuse it for later updates and when resuming known work in another conversation.
 - Use `backlog ls` to recover existing ticket IDs and statuses. Pass `-id ID` or a comma-separated list to inspect selected tickets, and use `-json` for structured output.
 - Report new work and meaningful changes as they happen. Include a percentage when there is a reasonable estimate. Put the blocker on the affected task. Report a separate task if resolving the blocker is itself separate work.
@@ -26,6 +28,21 @@ backlog done -id sign-in,account-recovery
 ```
 
 The ticket commands require CLI and server version 0.7.0 or later. On older versions, use `task -id ID` with the desired fields once per ticket.
+
+## Publish project documentation
+
+When initializing or refreshing a project in Backlog, upload only its root `README.md` and `SPECIFICATION.md` if they exist. If the project uses `SPEC.md` as its main specification, upload it under the name `SPECIFICATION.md`. Do not scan documentation directories or bulk-upload files. Upload any additional documents only on explicit request.
+
+The first upload can create the project. Upload under the same name to replace a document. The dashboard links to these documents from the project card and board and renders them as HTML.
+
+```sh
+backlog doc -file README.md
+backlog doc -file SPECIFICATION.md
+```
+
+`backlog doc` requires CLI and server version 0.8.0 or later. If `backlog` on PATH is older, use the newer local install at `~/.local/bin/backlog` when available.
+
+## Report a snapshot
 
 ```sh
 backlog snapshot -file - <<'JSON'

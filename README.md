@@ -14,6 +14,14 @@ On macOS, the wizard asks whether to install and start a background service and 
 
 Open [127.0.0.1:15000](http://127.0.0.1:15000). From another device on the same tailnet, open `http://<server-tailscale-ip>:15000` for a read-only view.
 
+To allow archiving and project color changes through an existing Tailscale Serve HTTPS route, run Backlog on loopback and name the exact route host and the permitted Tailscale login. Include the port in the host when the HTTPS URL uses a nonstandard port.
+
+```sh
+backlog serve -addr 127.0.0.1:15000 \
+  -tailscale-archive-host mini.example.ts.net:15001 \
+  -tailscale-archive-user owner@example.com
+```
+
 Project summaries and task boards show **Blocked**, **To do**, **Doing**, **Done**, and **Rejected**, in that order. A project-wide snapshot marks unfinished tasks it omits as **Rejected**. Reporting a rejected task again returns it to the active task board.
 
 ```sh
@@ -65,7 +73,34 @@ Snapshot files and snapshot input on stdin use JSON in either output mode.
 
 ## Homepage activity
 
-The grid between **Projects** and the tracked-project count shows the past 30 calendar days, including today. Match a project's pastel square in the grid to the square on its card. Each colored pixel represents a ticket reported or updated that day, using its last recorded status for the day. Hover over a cell for the date, project, and status counts. The grid uses the server's local time zone and starts collecting activity when the server is upgraded.
+The activity grid defaults to four weeks, including today. The 1w, 2w, and 4w buttons are always available. Longer ranges become available as history accumulates. Short ranges show days and the three-month, six-month, and one-year ranges show weeks. Each pixel represents one ticket using its latest recorded status in that period, and occupied cells use the project's pastel tint. Hover over a cell for dates, project, and status counts. The grid uses the server's local time zone.
+
+Projects with Doing tickets appear first. Within the active and inactive groups, the latest ticket status change, report, archive, or document upload determines the order. A document upload temporarily raises the project to the top for six seconds. Cards slide into place when motion is enabled.
+
+Right-click a project card to choose a pastel color for its marker and heatmap. When a preset is already assigned, the previous project receives a free preset or its automatic color.
+
+## Project board
+
+A ticket in **Doing** shows a live `hh:mm:ss` timer. Leaving **Doing** pauses the timer, returning resumes it, and **Done** shows the total time spent in **Doing**. Tickets already in **Doing** start tracking at upgrade. A Done ticket with no timing history shows **Total time not recorded**.
+
+A red badge beside the project name shows the number of blocked tickets. With archive access, right-click a project card or ticket and select **Archive**. Right-click a **Blocked**, **To do**, **Done**, or **Rejected** column and choose **Archive all**. Use **Shift+F10** on a focused card, ticket, or column to open its menu by keyboard. Archive actions ask for confirmation. Archived items stay out of the dashboard and activity grid, and the CLI still lists their tickets.
+
+The homepage's **Done** count is the lifetime number of distinct completed tickets, including archived completions.
+
+## Project documents
+
+Publish Markdown from the project directory. Each document appears as a link above the ticket board. The homepage card also links directly to a README or specification when one exists. The first upload creates the project if needed. Upload under the same name to replace the document.
+
+```sh
+backlog doc -file README.md
+backlog doc -file SPECIFICATION.md
+backlog doc -name "Project overview" -file docs/overview.md
+backlog doc -name "Release notes" -file - < RELEASE.md
+```
+
+The file name is the default document name. Give documents their original file names if they link to each other in Markdown. Use `-name` when reading Markdown from stdin. The upload request can be up to 1 MiB. The command supports `-json`, `-p`, and `-addr`.
+
+Run `backlog doc -clear` from a project's root to remove all its uploaded documents. It preserves the source files, project, and tickets.
 
 ## Reporting skill
 

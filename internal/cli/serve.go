@@ -29,10 +29,16 @@ func serve(ctx context.Context, args []string, diagnostics io.Writer) error {
 	flags := newFlags("serve", diagnostics, " [options]")
 	var address, path string
 	resolveAddress := serverFlags(flags, &address, &path)
+	archiveHost := flags.String("tailscale-archive-host", "", "Tailscale Serve HTTPS hostname and optional port for archive actions")
+	archiveUser := flags.String("tailscale-archive-user", "", "Tailscale login authorized to archive through Serve")
 	if err := parseFlags(flags, args); err != nil {
 		return err
 	}
 	if err := resolveAddress(); err != nil {
+		return err
+	}
+	archiveAccess, err := server.NewTailscaleArchiveAccess(*archiveHost, *archiveUser, address)
+	if err != nil {
 		return err
 	}
 	if path == "" {
@@ -56,7 +62,7 @@ func serve(ctx context.Context, args []string, diagnostics io.Writer) error {
 	}
 
 	for {
-		replacement, port, err := runServer(ctx, address, path, executable, known, buildID, diagnostics)
+		replacement, port, err := runServer(ctx, address, path, executable, known, buildID, archiveAccess, diagnostics)
 		if err != nil || replacement.info == nil || ctx.Err() != nil {
 			return err
 		}
@@ -83,7 +89,7 @@ func listenServer(address string) (net.Listener, error) {
 	return net.Listen(network, address)
 }
 
-func runServer(ctx context.Context, address, path, executable string, known executableRevision, buildID string, diagnostics io.Writer) (executableRevision, int, error) {
+func runServer(ctx context.Context, address, path, executable string, known executableRevision, buildID string, archiveAccess server.TailscaleArchiveAccess, diagnostics io.Writer) (executableRevision, int, error) {
 	var replacement executableRevision
 	listener, err := listenServer(address)
 	if err != nil {
@@ -97,7 +103,7 @@ func runServer(ctx context.Context, address, path, executable string, known exec
 	defer store.Close()
 
 	httpServer := &http.Server{
-		Handler:           server.Handler(store, buildID),
+		Handler:           server.HandlerWithArchiveAccess(store, buildID, archiveAccess),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,

@@ -11,6 +11,7 @@ import (
 	"harness.engineering/internal/model"
 	"harness.engineering/internal/server"
 	"harness.engineering/internal/storage"
+	"harness.engineering/internal/version"
 )
 
 func TestTicketCommands(t *testing.T) {
@@ -24,6 +25,7 @@ func TestTicketCommands(t *testing.T) {
 	service := httptest.NewServer(server.Handler(store, "test"))
 	defer service.Close()
 	address := strings.TrimPrefix(service.URL, "http://")
+	wantDiagnostics := version.Warning(version.Client, version.Server)
 	run := func(input string, args ...string) (string, string, int) {
 		t.Helper()
 		var out, diagnostics bytes.Buffer
@@ -34,7 +36,7 @@ func TestTicketCommands(t *testing.T) {
 	succeed := func(input string, args ...string) string {
 		t.Helper()
 		out, diagnostics, code := run(input, args...)
-		if code != 0 || diagnostics != "" {
+		if code != 0 || strings.TrimSpace(diagnostics) != wantDiagnostics {
 			t.Fatalf("%v: exit=%d stdout=%q stderr=%q", args, code, out, diagnostics)
 		}
 		return out

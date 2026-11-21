@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"log"
 	"mime"
-	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -29,16 +28,24 @@ var files embed.FS
 
 var dashboard = template.Must(template.New("dashboard.html").Funcs(template.FuncMap{
 	"reportTime":   func(nanos int64) time.Time { return time.Unix(0, nanos).UTC() },
-	"projectColor": projectColor,
+	"elapsedTime":  elapsedTime,
+	"milliseconds": func(nanos int64) int64 { return nanos / int64(time.Millisecond) },
+	"documentPath": documentPath,
+	"ticketKey":    url.QueryEscape,
 }).ParseFS(files, "web/dashboard.html"))
 
 type server struct {
-	store   *storage.Store
-	buildID string
+	store         *storage.Store
+	buildID       string
+	archiveAccess TailscaleArchiveAccess
 }
 
 func Handler(store *storage.Store, buildID string) http.Handler {
-	app := server{store: store, buildID: buildID}
+	return HandlerWithArchiveAccess(store, buildID, TailscaleArchiveAccess{})
+}
+
+func HandlerWithArchiveAccess(store *storage.Store, buildID string, access TailscaleArchiveAccess) http.Handler {
+	app := server{store: store, buildID: buildID, archiveAccess: access}
 	assets, err := fs.Sub(files, "web/assets")
 	if err != nil {
 		panic(err)
@@ -48,21 +55,22 @@ func Handler(store *storage.Store, buildID string) http.Handler {
 	mux.Handle("GET /assets/", http.StripPrefix("/assets/", static))
 	mux.Handle("GET /favicon.ico", static)
 	mux.HandleFunc("GET /api/version", app.version)
-	mux.HandleFunc("POST /api/reports", app.report)
+	mux.HandleFunc("POST /api/reports", requireAccess(localRequest, app.report))
 	mux.HandleFunc("GET /api/tasks", app.listTasks)
-	mux.HandleFunc("PATCH /api/tasks", app.updateTasks)
+	mux.HandleFunc("PATCH /api/tasks", requireAccess(localRequest, app.updateTasks))
+	mux.HandleFunc("POST /api/documents", requireAccess(localRequest, app.saveDocument))
+	mux.HandleFunc("DELETE /api/documents", requireAccess(localRequest, app.clearDocuments))
 	mux.HandleFunc("GET /{$}", app.dashboard)
-	mux.HandleFunc("GET /archived", app.dashboard)
 	mux.HandleFunc("GET /projects/{id}", app.dashboard)
-	mux.HandleFunc("POST /projects/{id}/archive", app.archive)
+	mux.HandleFunc("GET /projects/{id}/docs/{name}", app.document)
+	mux.HandleFunc("POST /projects/{id}/archive", requireAccess(app.canArchive, app.archive))
+	mux.HandleFunc("POST /projects/{id}/archive/ticket", requireAccess(app.canArchive, app.archiveTicket))
+	mux.HandleFunc("POST /projects/{id}/archive/{status}", requireAccess(app.canArchive, app.archiveColumn))
+	mux.HandleFunc("POST /projects/{id}/color", requireAccess(app.canArchive, app.setProjectColor))
 	handler := http.NewCrossOriginProtection().Handler(mux)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !dashboardHost(requestHost(r)) {
 			http.Error(w, "use a local address, an IP address, or a Tailscale hostname", http.StatusForbidden)
-			return
-		}
-		if r.Method != http.MethodGet && r.Method != http.MethodHead && !localRequest(r) {
-			http.Error(w, "project changes require a local connection", http.StatusForbidden)
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
@@ -83,8 +91,7 @@ func dashboardHost(host string) bool {
 }
 
 func localRequest(r *http.Request) bool {
-	peer, _, err := net.SplitHostPort(r.RemoteAddr)
-	return err == nil && local.IsLoopback(peer) && local.IsLoopback(requestHost(r))
+	return loopbackPeer(r) && local.IsLoopback(requestHost(r))
 }
 
 func (app server) version(w http.ResponseWriter, _ *http.Request) {
@@ -93,11 +100,11 @@ func (app server) version(w http.ResponseWriter, _ *http.Request) {
 
 func (app server) report(w http.ResponseWriter, r *http.Request) {
 	var report model.Report
-	if !readReport(w, r, &report) {
+	if !readJSONRequest(w, r, &report) {
 		return
 	}
 	result, err := app.store.Apply(r.Context(), report)
-	writeTaskResponse(w, result, err, "save report")
+	writeAPIResponse(w, result, err, "save report")
 }
 
 func (app server) listTasks(w http.ResponseWriter, r *http.Request) {
@@ -111,19 +118,19 @@ func (app server) listTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tasks, err := app.store.ListTasks(r.Context(), query.Get("root"), query["id"])
-	writeTaskResponse(w, tasks, err, "list tasks")
+	writeAPIResponse(w, tasks, err, "list tasks")
 }
 
 func (app server) updateTasks(w http.ResponseWriter, r *http.Request) {
 	var changes model.TaskChanges
-	if !readReport(w, r, &changes) {
+	if !readJSONRequest(w, r, &changes) {
 		return
 	}
 	result, err := app.store.UpdateTasks(r.Context(), changes)
-	writeTaskResponse(w, result, err, "update tasks")
+	writeAPIResponse(w, result, err, "update tasks")
 }
 
-func readReport(w http.ResponseWriter, r *http.Request, target any) bool {
+func readJSONRequest(w http.ResponseWriter, r *http.Request, target any) bool {
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
 		writeJSON(w, http.StatusUnsupportedMediaType, wire.Failure{Error: "expected application/json"})
@@ -131,13 +138,13 @@ func readReport(w http.ResponseWriter, r *http.Request, target any) bool {
 	}
 	err = wire.ReadJSON(http.MaxBytesReader(w, r.Body, wire.MaxReportBytes), target)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, wire.Failure{Error: "invalid report: " + err.Error()})
+		writeJSON(w, http.StatusBadRequest, wire.Failure{Error: "invalid JSON request: " + err.Error()})
 		return false
 	}
 	return true
 }
 
-func writeTaskResponse(w http.ResponseWriter, result any, err error, operation string) {
+func writeAPIResponse(w http.ResponseWriter, result any, err error, operation string) {
 	var invalid model.Invalid
 	switch {
 	case errors.As(err, &invalid):
@@ -164,29 +171,38 @@ type group struct {
 	Tasks  []model.Task
 }
 
+func (group group) ArchiveStatus() string {
+	switch group.Status {
+	case "omitted":
+		return model.Rejected
+	case model.Doing:
+		return ""
+	default:
+		return group.Status
+	}
+}
+
 type page struct {
-	Title    string
-	Section  string
-	Projects []model.Project
-	Archived []model.Project
-	Selected *model.Project
-	Groups   []group
-	Activity activityChart
-	CanEdit  bool
-	BuildID  string
-	Version  string
+	Title        string
+	Section      string
+	Projects     []model.Project
+	Selected     *model.Project
+	Groups       []group
+	Documents    []string
+	Activity     activityChart
+	CanEdit      bool
+	ColorPresets []model.ProjectColorPreset
+	BuildID      string
+	Version      string
 }
 
 func (app server) dashboard(w http.ResponseWriter, r *http.Request) {
 	view := page{
-		Title: "Projects", Section: "projects", CanEdit: localRequest(r),
-		BuildID: app.buildID, Version: version.Server,
+		Title: "Projects", Section: "projects", CanEdit: app.canArchive(r),
+		BuildID: app.buildID, Version: version.Server, ColorPresets: model.ProjectColorPresets,
 	}
 	var selectedID int64
-	switch {
-	case r.URL.Path == "/archived":
-		view.Title, view.Section = "Archived projects", "archived"
-	case r.PathValue("id") != "":
+	if r.PathValue("id") != "" {
 		id, err := projectID(r)
 		if err != nil {
 			http.NotFound(w, r)
@@ -197,14 +213,20 @@ func (app server) dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	var projects []model.Project
 	var tasks []model.Task
-	var activity []model.DailyActivity
+	var activity []model.PeriodActivity
+	var oldest string
 	var err error
-	today := time.Now()
-	first := today.AddDate(0, 0, 1-activityDays)
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	selectedRange := findActivityRange(r.URL.Query().Get("range"))
 	if view.Section == "projects" {
-		projects, activity, err = app.store.Homepage(r.Context(), first.Format(time.DateOnly), today.Format(time.DateOnly))
+		projects, activity, oldest, err = app.store.Homepage(r.Context(), selectedRange.first(today).Format(time.DateOnly), today.Format(time.DateOnly), selectedRange.step)
+		if err == nil && !selectedRange.available(today, oldest) {
+			selectedRange = findActivityRange(defaultActivityRange)
+			projects, activity, oldest, err = app.store.Homepage(r.Context(), selectedRange.first(today).Format(time.DateOnly), today.Format(time.DateOnly), selectedRange.step)
+		}
 	} else {
-		projects, tasks, err = app.store.Dashboard(r.Context(), selectedID)
+		projects, tasks, view.Documents, err = app.store.Dashboard(r.Context(), selectedID)
 	}
 	if err != nil {
 		pageError(w, r, err)
@@ -212,21 +234,20 @@ func (app server) dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, project := range projects {
+		if project.Archived {
+			continue
+		}
 		if project.ID == selectedID {
 			view.Selected = &project
 			view.Title = project.Name()
 		}
-		if project.Archived {
-			view.Archived = append(view.Archived, project)
-		} else {
-			view.Projects = append(view.Projects, project)
-		}
+		view.Projects = append(view.Projects, project)
 	}
 	if view.Selected != nil {
 		view.Groups = taskGroups(tasks)
 	}
 	if view.Section == "projects" {
-		view.Activity = makeActivityChart(first, view.Projects, activity)
+		view.Activity = makeActivityChart(today, selectedRange, oldest, view.Projects, activity)
 	}
 
 	var output bytes.Buffer
@@ -277,6 +298,52 @@ func (app server) archive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := app.store.SetArchived(r.Context(), id, value == "true"); err != nil {
+		pageError(w, r, err)
+		return
+	}
+	if value == "true" {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/projects/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
+}
+
+func archivableStatus(status string) bool {
+	return status == model.Blocked || status == model.Todo || status == model.Done || status == model.Rejected
+}
+
+func (app server) archiveColumn(w http.ResponseWriter, r *http.Request) {
+	id, err := projectID(r)
+	status := r.PathValue("status")
+	if err != nil || !archivableStatus(status) {
+		http.NotFound(w, r)
+		return
+	}
+	if err := app.store.ArchiveColumn(r.Context(), id, status); err != nil {
+		pageError(w, r, err)
+		return
+	}
+	http.Redirect(w, r, "/projects/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
+}
+
+func (app server) archiveTicket(w http.ResponseWriter, r *http.Request) {
+	id, err := projectID(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	// A ticket identifier can be escaped once in the page and again by the form.
+	r.Body = http.MaxBytesReader(w, r.Body, wire.MaxReportBytes*5+64)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid archive request", http.StatusBadRequest)
+		return
+	}
+	taskID, err := url.QueryUnescape(r.PostForm.Get("ticket_key"))
+	if err != nil || strings.TrimSpace(taskID) == "" {
+		http.Error(w, "ticket ID is required", http.StatusBadRequest)
+		return
+	}
+	if err := app.store.ArchiveTicket(r.Context(), id, taskID); err != nil {
 		pageError(w, r, err)
 		return
 	}

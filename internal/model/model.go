@@ -14,8 +14,8 @@ const (
 	Rejected = "rejected"
 )
 
-type DailyActivity struct {
-	Day       string
+type PeriodActivity struct {
+	Start     string
 	ProjectID int64
 	Status    string
 	Count     int
@@ -120,15 +120,18 @@ func (task TaskUpdate) validate() error {
 }
 
 type Project struct {
-	ID           int64
-	Root         string
-	Archived     bool
-	LatestReport int64
-	Todo         int
-	Doing        int
-	Blocked      int
-	Done         int
-	Omitted      int
+	ID            int64
+	Root          string
+	Archived      bool
+	LatestReport  int64
+	Todo          int
+	Doing         int
+	Blocked       int
+	Done          int
+	Omitted       int
+	Readme        string
+	Specification string
+	ColorPreset   string
 }
 
 func (project Project) Name() string {
@@ -143,6 +146,8 @@ type Task struct {
 	Progress    *int   `json:"progress"`
 	Blocker     string `json:"blocker"`
 	Omitted     bool   `json:"omitted"`
+	ActiveNanos *int64 `json:"-"`
+	StartedAt   *int64 `json:"-"`
 }
 
 func (task Task) DisplayProgress() *int {

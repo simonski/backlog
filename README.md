@@ -12,27 +12,66 @@ backlog setup
 
 On macOS, the wizard asks whether to install and start a background service and whether to install the reporting skill. The service runs as the current user, starts at login, and restarts if it exits. If a foreground `backlog serve` is already running, stop it with Ctrl-C before starting the service. Run setup as the same user to reuse the default SQLite database. Pass `-p 15001` for a different port or `-db PATH` to reuse a custom database.
 
-Open [127.0.0.1:15000](http://127.0.0.1:15000). From another device on the same tailnet, open `http://<server-tailscale-ip>:15000` for a read-only view.
-
-To allow archiving and project color changes through an existing Tailscale Serve HTTPS route, run Backlog on loopback and name the exact route host and the permitted Tailscale login. Include the port in the host when the HTTPS URL uses a nonstandard port.
-
-```sh
-backlog serve -addr 127.0.0.1:15000 \
-  -tailscale-archive-host mini.example.ts.net:15001 \
-  -tailscale-archive-user owner@example.com
-```
+Open [http://127.0.0.1:15000/](http://127.0.0.1:15000/) on the machine running Backlog.
 
 Project summaries and task boards show **Blocked**, **To do**, **Doing**, **Done**, and **Rejected**, in that order. A project-wide snapshot marks unfinished tasks it omits as **Rejected**. Reporting a rejected task again returns it to the active task board.
 
 ```sh
 launchctl print "gui/$(id -u)/local.backlog"    # status
-tail -f "$HOME/Library/Logs/backlog.log"       # logs
+tail -F "$HOME/Library/Logs/backlog.log" "$HOME/Library/Logs/backlog-access.log"
 launchctl bootout "gui/$(id -u)/local.backlog" # stop until next login
 ```
+
+The server writes one access record per HTTP request to stdout. It includes the connection peer, method, path, response status, byte count, and duration. Launchd saves stdout to `~/Library/Logs/backlog-access.log` and stderr to `~/Library/Logs/backlog.log`. Run `backlog setup` again to add the stdout file to a standard launchd configuration created by an older binary.
 
 To remove the service from future logins, unload it and remove `~/Library/LaunchAgents/local.backlog.plist`. Run `backlog serve` for foreground operation. On other platforms, the wizard offers skill installation and the server can be started with `backlog serve`.
 
 From a source checkout, run `make` to list targets. Use `make clean build install` to rebuild and install, or `make run` to build and start the server. Select a different port with `make run -- -p 15001` or `backlog serve -p 15001`.
+
+If the port is already in use, `backlog serve` exits with an error and identifies an existing Backlog instance when it can. Use `-p N` to start on a different port.
+
+Run `backlog serve -stop` to ask a running local Backlog server to shut down gracefully. Pass the same `-p N` or `-addr` if it uses a custom endpoint. On macOS the command unloads the Backlog launchd job when it owns that listener, so the job cannot immediately restart it. Run `backlog setup` to register the standard background service again.
+
+## Restart the macOS background service
+
+Run `backlog setup` and accept the background service option to run Backlog under launchd. After building a new version, install it at the executable path used by the launchd job. For a job registered from `~/.local/bin/backlog`, use `make install` from the source checkout. A running server watches its launch executable and reloads when the installed binary changes.
+
+Run `backlog restart` to print the launchd command for the current setup. Execute the printed command to restart a registered job or load an installed LaunchAgent. If the service needs initial setup, the command prints the setup invocation.
+
+## Serve Backlog over Tailscale
+
+Use a Tailscale Service named `backlog` to open `https://backlog.<tailnet>.ts.net/` from another tailnet device. Tailscale handles HTTPS on port `443` and forwards to the Backlog server on `127.0.0.1:15000`.
+
+1. Start Backlog on the host and confirm `backlog status` reports it running on port `15000`. On macOS, run `backlog setup` and accept the background service option to keep it running under launchd.
+2. In the Tailscale admin console, define a tag such as `tag:backlog-host` in `tagOwners` under **Access controls**. In **Machines**, open the Backlog host's menu, choose **Edit tags**, apply the tag, and save. A Tailscale Service host requires a tag-based identity. Check your access rules when tagging a device that was previously signed in as a user. [Tailscale tags](https://tailscale.com/docs/features/tags)
+3. In **Services**, create `svc:backlog` with endpoint `tcp:443`. Check that your tailnet policy allows the intended clients to reach the service.
+4. Run this on the tagged host. If `tailscale` is unavailable on PATH on macOS, substitute `/Applications/Tailscale.app/Contents/MacOS/Tailscale`.
+
+   ```sh
+   tailscale serve --service=svc:backlog --https=443 http://127.0.0.1:15000
+   ```
+
+5. In **Services → backlog → Service hosts**, approve the host if it is pending. Open the HTTPS URL printed by Tailscale from a device on your tailnet. [Tailscale Services setup](https://tailscale.com/docs/features/tailscale-services)
+
+For archive and project-color controls through Tailscale, set the exact service hostname and permitted login in the Backlog startup arguments. Replace the example hostname and login with your values. For a background server, use these arguments in the launchd job.
+
+```sh
+backlog serve -addr 127.0.0.1:15000 \
+  -tailscale-archive-host backlog.example-tailnet.ts.net \
+  -tailscale-archive-user owner@example.com
+```
+
+## Check server status
+
+Run `backlog status` or its alias `backlog ps` to see `BACKLOG_URL`, detected `backlog serve` processes, launchd registration on macOS, and whether the configured local port responds as Backlog. A listening port and a healthy Backlog server are reported separately. The command shows the CLI, bundled server, and running server versions and prints upgrade advice on stdout. Compatibility warnings remain on stderr.
+
+```sh
+backlog status
+backlog status -p 15001 -json
+BACKLOG_URL=https://backlog.example-tailnet.ts.net/ backlog status
+```
+
+`BACKLOG_URL` controls the displayed dashboard URL and defaults to the local endpoint. `HARNESS_ADDR`, `-addr`, and `-p` select the loopback endpoint to probe. `status` exits nonzero when it cannot confirm a running Backlog server, and `-json` still includes the diagnostic results on stdout.
 
 ## macOS menu bar
 

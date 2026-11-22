@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -45,6 +46,10 @@ func Handler(store *storage.Store, buildID string) http.Handler {
 }
 
 func HandlerWithArchiveAccess(store *storage.Store, buildID string, access TailscaleArchiveAccess) http.Handler {
+	return HandlerWithShutdown(store, buildID, access, nil)
+}
+
+func HandlerWithShutdown(store *storage.Store, buildID string, access TailscaleArchiveAccess, shutdown func()) http.Handler {
 	app := server{store: store, buildID: buildID, archiveAccess: access}
 	assets, err := fs.Sub(files, "web/assets")
 	if err != nil {
@@ -55,6 +60,15 @@ func HandlerWithArchiveAccess(store *storage.Store, buildID string, access Tails
 	mux.Handle("GET /assets/", http.StripPrefix("/assets/", static))
 	mux.Handle("GET /favicon.ico", static)
 	mux.HandleFunc("GET /api/version", app.version)
+	if shutdown != nil {
+		mux.HandleFunc("POST /api/stop", requireAccess(localRequest, func(w http.ResponseWriter, r *http.Request) {
+			if !readJSONRequest(w, r, &struct{}{}) {
+				return
+			}
+			writeJSON(w, http.StatusOK, wire.StopResult{PID: os.Getpid()})
+			shutdown()
+		}))
+	}
 	mux.HandleFunc("POST /api/reports", requireAccess(localRequest, app.report))
 	mux.HandleFunc("GET /api/tasks", app.listTasks)
 	mux.HandleFunc("PATCH /api/tasks", requireAccess(localRequest, app.updateTasks))

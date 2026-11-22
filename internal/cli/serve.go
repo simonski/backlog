@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -25,10 +26,11 @@ func serverFlags(flags *flag.FlagSet, address, database *string) func() error {
 	return addressFlags(flags, address, local.DefaultListenAddress, "bind address and port")
 }
 
-func serve(ctx context.Context, args []string, diagnostics io.Writer) error {
+func serve(ctx context.Context, args []string, out, diagnostics io.Writer) error {
 	flags := newFlags("serve", diagnostics, " [options]")
 	var address, path string
 	resolveAddress := serverFlags(flags, &address, &path)
+	stop := flags.Bool("stop", false, "ask the running local server to shut down")
 	archiveHost := flags.String("tailscale-archive-host", "", "Tailscale Serve HTTPS hostname and optional port for archive actions")
 	archiveUser := flags.String("tailscale-archive-user", "", "Tailscale login authorized to archive through Serve")
 	if err := parseFlags(flags, args); err != nil {
@@ -36,6 +38,9 @@ func serve(ctx context.Context, args []string, diagnostics io.Writer) error {
 	}
 	if err := resolveAddress(); err != nil {
 		return err
+	}
+	if *stop {
+		return stopServer(ctx, address, out, diagnostics)
 	}
 	archiveAccess, err := server.NewTailscaleArchiveAccess(*archiveHost, *archiveUser, address)
 	if err != nil {
@@ -62,7 +67,7 @@ func serve(ctx context.Context, args []string, diagnostics io.Writer) error {
 	}
 
 	for {
-		replacement, port, err := runServer(ctx, address, path, executable, known, buildID, archiveAccess, diagnostics)
+		replacement, port, err := runServer(ctx, address, path, executable, known, buildID, archiveAccess, out, diagnostics)
 		if err != nil || replacement.info == nil || ctx.Err() != nil {
 			return err
 		}
@@ -89,10 +94,55 @@ func listenServer(address string) (net.Listener, error) {
 	return net.Listen(network, address)
 }
 
-func runServer(ctx context.Context, address, path, executable string, known executableRevision, buildID string, archiveAccess server.TailscaleArchiveAccess, diagnostics io.Writer) (executableRevision, int, error) {
+func loopbackBindAddress(address string) (string, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return "", err
+	}
+	switch host {
+	case "", "0.0.0.0":
+		host = "127.0.0.1"
+	case "::":
+		host = "::1"
+	}
+	probeAddress := net.JoinHostPort(host, port)
+	return probeAddress, local.ValidateAddress(probeAddress)
+}
+
+func probeBindAddress(ctx context.Context, address string) statusReport {
+	probeAddress, err := loopbackBindAddress(address)
+	if err != nil {
+		return statusReport{}
+	}
+	report := statusReport{LocalURL: "http://" + probeAddress}
+	probeServer(ctx, probeAddress, &report, io.Discard)
+	return report
+}
+
+func bindConflict(address string, report statusReport, bindErr error) error {
+	_, port, _ := net.SplitHostPort(address)
+	if report.ServerVersion != "" {
+		return fmt.Errorf("Backlog %s is already running at %s. Choose a different port with -p to start another instance (%w)",
+			report.ServerVersion, report.LocalURL, bindErr)
+	}
+	if report.Port == "listening" {
+		return fmt.Errorf("port %s is already in use. The listener did not identify as Backlog. Stop it or choose a different port with -p (%w)",
+			port, bindErr)
+	}
+	return fmt.Errorf("port %s is already in use. Stop the existing listener or choose a different port with -p (%w)", port, bindErr)
+}
+
+func runServer(ctx context.Context, address, path, executable string, known executableRevision, buildID string, archiveAccess server.TailscaleArchiveAccess, out, diagnostics io.Writer) (executableRevision, int, error) {
 	var replacement executableRevision
+	// A wildcard bind can succeed even with an existing loopback listener on macOS.
+	if report := probeBindAddress(ctx, address); report.Port == "listening" {
+		return replacement, 0, bindConflict(address, report, syscall.EADDRINUSE)
+	}
 	listener, err := listenServer(address)
 	if err != nil {
+		if errors.Is(err, syscall.EADDRINUSE) {
+			err = bindConflict(address, probeBindAddress(ctx, address), err)
+		}
 		return replacement, 0, err
 	}
 	defer listener.Close()
@@ -102,8 +152,11 @@ func runServer(ctx context.Context, address, path, executable string, known exec
 	}
 	defer store.Close()
 
+	stopCtx, requestStop := context.WithCancel(ctx)
+	defer requestStop()
+	handler := server.HandlerWithShutdown(store, buildID, archiveAccess, requestStop)
 	httpServer := &http.Server{
-		Handler:           server.HandlerWithArchiveAccess(store, buildID, archiveAccess),
+		Handler:           server.AccessLog(out, handler),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,
@@ -128,17 +181,21 @@ func runServer(ctx context.Context, address, path, executable string, known exec
 	select {
 	case err := <-done:
 		return replacement, bound.Port, err
-	case <-ctx.Done():
+	case <-stopCtx.Done():
 	case replacement = <-watchExecutable(watch, executable, known):
 	}
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := httpServer.Shutdown(shutdown); err != nil {
+	drainErr := httpServer.Shutdown(shutdown)
+	if stopCtx.Err() != nil {
+		replacement = executableRevision{}
+	}
+	if drainErr != nil {
 		httpServer.Close()
 		if replacement.info == nil {
-			return replacement, bound.Port, err
+			return replacement, bound.Port, drainErr
 		}
-		fmt.Fprintf(diagnostics, "Server drain before restart: %v\n", err)
+		fmt.Fprintf(diagnostics, "Server drain before restart: %v\n", drainErr)
 	}
 	return replacement, bound.Port, nil
 }

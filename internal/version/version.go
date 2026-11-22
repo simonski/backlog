@@ -2,13 +2,14 @@ package version
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
 
 const (
-	Client   = "0.9.0"
-	Server   = "0.10.0"
+	Client   = "0.12.1"
+	Server   = "0.11.1"
 	Protocol = 1
 )
 
@@ -33,6 +34,12 @@ func core(value string) ([3]int, bool) {
 func Valid(value string) bool {
 	_, ok := core(value)
 	return ok
+}
+
+func Older(version, than string) bool {
+	a, aOK := core(version)
+	b, bOK := core(than)
+	return aOK && bOK && slices.Compare(a[:], b[:]) < 0
 }
 
 // Warning describes a major or minor application version mismatch.

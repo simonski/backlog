@@ -66,6 +66,35 @@ func TestRemoteDashboardIsReadOnly(t *testing.T) {
 	}
 }
 
+func TestShutdownRequiresLocalSameOriginRequest(t *testing.T) {
+	stops := 0
+	handler := HandlerWithShutdown(nil, "test", TailscaleArchiveAccess{}, func() { stops++ })
+	for _, tc := range []struct {
+		host, peer, origin string
+		status             int
+	}{
+		{"127.0.0.1", "100.75.0.2:1234", "", http.StatusForbidden},
+		{"mini.example.ts.net", "127.0.0.1:1234", "", http.StatusForbidden},
+		{"127.0.0.1", "127.0.0.1:1234", "https://other.example.com", http.StatusForbidden},
+		{"127.0.0.1", "127.0.0.1:1234", "", http.StatusOK},
+	} {
+		request := httptest.NewRequest(http.MethodPost, "http://"+tc.host+"/api/stop", strings.NewReader("{}"))
+		request.RemoteAddr = tc.peer
+		request.Header.Set("Content-Type", "application/json")
+		if tc.origin != "" {
+			request.Header.Set("Origin", tc.origin)
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != tc.status {
+			t.Errorf("host=%s peer=%s origin=%s: got %d, want %d", tc.host, tc.peer, tc.origin, response.Code, tc.status)
+		}
+	}
+	if stops != 1 {
+		t.Fatalf("got %d shutdown requests, want one", stops)
+	}
+}
+
 func TestTailscaleArchiveAccess(t *testing.T) {
 	store, err := storage.Open(t.Context(), filepath.Join(t.TempDir(), "telemetry.db"))
 	if err != nil {

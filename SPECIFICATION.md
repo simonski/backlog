@@ -49,6 +49,11 @@ The harness sends an individual task report when it discovers work or when a tas
 - The setup wizard offers separate choices for installing a macOS user service and installing the reporting skill. The service uses the same server flags and database defaults as foreground operation, starts at login, and restarts when it exits. Setup preserves differing service configurations and customized skill files. On other platforms the wizard offers skill installation and the server runs in the foreground.
 - On macOS, `backlog menu` adds a ticket icon to the menu bar for the duration of the process. **Open Backlog** opens the local dashboard in the default browser. **Quick Backlog** opens one reusable dashboard window. The command accepts the same local address and port options as the reporting CLI.
 - Every server-backed CLI invocation checks the advertised server application version. On a major or minor mismatch, warn on stderr with both versions and identify the older component to upgrade. Patch-only differences produce no warning. If the version is unavailable, report that explicitly when a command is unavailable. Apply the separate client, server, and protocol version rules in `SDLC.md`.
+- `status` reports the dashboard URL, local port, Backlog identity and version, `backlog serve` process IDs when detected, and launchd registration on macOS. `BACKLOG_URL` sets the displayed URL independently of the local probe address. A refused connection or a listener without a valid Backlog version response produces a failing exit and an explicit unavailable-version diagnostic. Readable and JSON reports both retain the results of the other checks.
+- `ps` aliases `status` including its flags. Status output distinguishes the CLI, bundled server, and advertised running server releases, with advice in the report and compatibility warnings on stderr. `restart` prints the macOS command for kicking a registered launchd job, bootstrapping an installed agent, or running initial setup.
+- `serve` writes HTTP access records to stdout with the connection peer, method, path, status, bytes, and duration. Access records exclude query strings, headers, and bodies. Startup and error diagnostics use stderr. The macOS LaunchAgent directs stdout to `backlog-access.log` and stderr to `backlog.log` under `~/Library/Logs`.
+- When a port is already occupied, `serve` exits before opening SQLite. Start-up diagnostics identify a Backlog instance if the listener answers the version check over loopback and point to `-p` for a different port.
+- `serve -stop` confirms the local server's identity, sends `POST /api/stop`, and waits for the listener to close. The server lets in-flight requests drain before exiting. For a known macOS Backlog launchd job that owns the selected listener, the CLI unloads the job so it does not restart automatically.
 - Build and install targets replace executable files atomically. The Homebrew formula builds a pinned source release. A running server follows its launch path, including Homebrew's executable link, and restarts with the same arguments and port when the executable changes. The browser reloads the full page when it detects the new build, even when the semantic version is unchanged.
 
 ## Acceptance checks
@@ -64,6 +69,7 @@ The harness sends an individual task report when it discovers work or when a tas
 9. List project tickets with and without an ID filter. Edit fields and set statuses with single and comma-separated IDs. Include an unknown ID in a bulk change and verify that every selected ticket retains its previous status.
 10. Check the four-week default grid in the homepage heading at desktop and mobile widths. Verify that longer presets are enabled as historical data becomes available and that each period includes only the latest status for each ticket.
 11. Start a ticket, report progress, block it, and resume it. Check the red blocked-count badge, the advancing timer, and the fixed total once the ticket is done.
+12. Run `backlog status` against Backlog, an unrelated listener, and a closed port. Verify the three report outcomes, the machine-readable diagnostics, and the `BACKLOG_URL` display override.
 
 ## Implementation
 
@@ -76,6 +82,11 @@ The harness sends an individual task report when it discovers work or when a tas
 - Server version 0.9.0 adds individual ticket archiving, extends column archiving to Rejected, and adds homepage document shortcuts and activity presets.
 - Server version 0.9.1 can authorize archive controls through a configured Tailscale Serve HTTPS route.
 - Server version 0.10.0 adds the homepage project color palette and document clearing. Preset colors have one owner and are reassigned transactionally. CLI version 0.9.0 adds `doc -clear`.
+- CLI version 0.10.0 adds `status` using the existing server version endpoint.
+- Server version 0.10.1 reports occupied ports explicitly during startup.
+- Version 0.11.0 adds `serve -stop` and the loopback-only shutdown API.
+- CLI version 0.12.0 adds `ps`, `restart`, and status upgrade advice.
+- Server version 0.11.1 adds the access log. CLI version 0.12.1 adds stdout capture to generated LaunchAgents and upgrades an exact match for the older standard configuration.
 - The Go server embeds the dashboard assets and refreshes the browser view every 1.5 seconds while connected. The browser renders task fields as text and submits confirmed archive changes.
 - The initial protocol is version 1. Increment the protocol version for changes incompatible with the existing wire contract, independently of the application versions.
 - Development proceeds through the reporting contract and transactional SQLite storage, CLI and dashboard integration, then the acceptance checks above. Version 0.5.0 introduces the new CLI output modes and the **Rejected** dashboard label. Update the Homebrew source pin after tagging the release. This release targets local telemetry on one machine.

@@ -27,6 +27,9 @@ const usage = `Usage: backlog <command> [options]
 Commands:
   setup          Set up the background service and harness reporting skill
   serve          Run the dashboard and reporting server
+  status         Check Backlog setup, processes, and server health
+  ps             Alias for status
+  restart        Print the command to restart or start the launchd service
   menu           Show the Backlog menu in the macOS menu bar
   task           Report a single task update
   snapshot       Report all currently known project tasks as a JSON array
@@ -59,7 +62,11 @@ func (app App) Run(ctx context.Context, args []string, input io.Reader, out, dia
 	case "setup":
 		err = setup(ctx, args[1:], app.ReportingSkill, input, out, diagnostics)
 	case "serve":
-		err = serve(ctx, args[1:], diagnostics)
+		err = serve(ctx, args[1:], out, diagnostics)
+	case "status", "ps":
+		err = showStatus(ctx, args[0], args[1:], out, diagnostics)
+	case "restart":
+		err = showRestart(ctx, args[1:], out, diagnostics)
 	case "menu":
 		err = runMenu(ctx, args[1:], diagnostics)
 	case "task", "snapshot":

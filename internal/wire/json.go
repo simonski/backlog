@@ -26,6 +26,10 @@ type ServerVersion struct {
 	Protocol int    `json:"protocol_version"`
 }
 
+type StopResult struct {
+	PID int `json:"pid"`
+}
+
 type Failure struct {
 	Error string `json:"error"`
 }

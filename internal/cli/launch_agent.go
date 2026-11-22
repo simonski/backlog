@@ -63,35 +63,57 @@ func setupLaunchAgent(ctx context.Context, address, database string, out io.Writ
 	} else if host == "::" {
 		host = "::1"
 	}
-	fmt.Fprintf(out, "Dashboard: http://%s\nLogs: %s\n", net.JoinHostPort(host, port), log)
+	fmt.Fprintf(out, "Dashboard: http://%s\nError log: %s\nAccess log: %s\n", net.JoinHostPort(host, port), log, accessLogPath(log))
 	fmt.Fprintf(out, "Status: launchctl print %s/%s\nStop until next login: launchctl bootout %s/%s\n", domain, launchAgentLabel, domain, launchAgentLabel)
 	return nil
 }
 
 func startLaunchAgent(domain, plist, log, address string, args []string, launchctl func(...string) error) (bool, error) {
 	service := domain + "/" + launchAgentLabel
-	contents := launchAgentPlist(args, log)
-	if launchctl("print", service) == nil {
-		if existing, err := os.ReadFile(plist); err != nil || !bytes.Equal(existing, contents) {
+	contents := launchAgentPlist(args, log, accessLogPath(log))
+	legacy := launchAgentPlist(args, log, "")
+	existing, readErr := os.ReadFile(plist)
+	upgrade := readErr == nil && bytes.Equal(existing, legacy)
+	if upgrade {
+		info, err := os.Lstat(plist)
+		upgrade = err == nil && info.Mode().IsRegular()
+	}
+	loaded := launchctl("print", service) == nil
+	if loaded {
+		if readErr == nil && bytes.Equal(existing, contents) {
+			return true, nil
+		}
+		if !upgrade {
 			return false, fmt.Errorf("service %s is already registered with a different configuration; inspect it with launchctl print %s", service, service)
 		}
-		return true, nil
-	}
-
-	listener, err := listenServer(address)
-	if errors.Is(err, syscall.EADDRINUSE) {
-		return false, fmt.Errorf("%s is already in use; stop the foreground backlog serve or choose another port with -p", address)
-	}
-	if err != nil {
-		return false, fmt.Errorf("check listen address %s: %w", address, err)
-	}
-	if err := listener.Close(); err != nil {
-		return false, err
+	} else {
+		listener, err := listenServer(address)
+		if errors.Is(err, syscall.EADDRINUSE) {
+			return false, fmt.Errorf("%s is already in use; stop the foreground backlog serve or choose another port with -p", address)
+		}
+		if err != nil {
+			return false, fmt.Errorf("check listen address %s: %w", address, err)
+		}
+		if err := listener.Close(); err != nil {
+			return false, err
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(log), 0o755); err != nil {
 		return false, err
 	}
-	if _, err := installFile(plist, contents); errors.Is(err, os.ErrExist) {
+	if upgrade {
+		if loaded {
+			if err := launchctl("bootout", service); err != nil {
+				return false, err
+			}
+		}
+		if err := upgradeLaunchAgentFile(plist, legacy, contents); err != nil {
+			if loaded {
+				err = errors.Join(err, launchctl("bootstrap", domain, plist))
+			}
+			return false, err
+		}
+	} else if _, err := installFile(plist, contents); errors.Is(err, os.ErrExist) {
 		return false, fmt.Errorf("a different service configuration already exists at %s; review it before running setup again", plist)
 	} else if err != nil {
 		return false, err
@@ -106,7 +128,31 @@ func startLaunchAgent(domain, plist, log, address string, args []string, launchc
 	return false, nil
 }
 
-func launchAgentPlist(args []string, log string) []byte {
+func upgradeLaunchAgentFile(path string, old, updated []byte) error {
+	staged, err := stageFile(filepath.Dir(path), updated)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(staged)
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	current, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || !bytes.Equal(current, old) {
+		return fmt.Errorf("launch agent configuration changed at %s", path)
+	}
+	return os.Rename(staged, path)
+}
+
+func accessLogPath(errorLog string) string {
+	return filepath.Join(filepath.Dir(errorLog), "backlog-access.log")
+}
+
+func launchAgentPlist(args []string, log, accessLog string) []byte {
 	var plist bytes.Buffer
 	fmt.Fprintln(&plist, `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -123,6 +169,12 @@ func launchAgentPlist(args []string, log string) []byte {
 	}
 	plist.WriteString("  </array>\n  <key>KeepAlive</key>\n  <true/>\n  <key>StandardErrorPath</key>\n  <string>")
 	xml.EscapeText(&plist, []byte(log))
-	plist.WriteString("</string>\n</dict>\n</plist>\n")
+	plist.WriteString("</string>\n")
+	if accessLog != "" {
+		plist.WriteString("  <key>StandardOutPath</key>\n  <string>")
+		xml.EscapeText(&plist, []byte(accessLog))
+		plist.WriteString("</string>\n")
+	}
+	plist.WriteString("</dict>\n</plist>\n")
 	return plist.Bytes()
 }

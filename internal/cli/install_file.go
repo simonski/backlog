@@ -13,17 +13,13 @@ func installFile(path string, contents []byte) (bool, error) {
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		return false, err
 	}
-	staged, err := os.CreateTemp(directory, ".backlog-*")
+	staged, err := stageFile(directory, contents)
 	if err != nil {
 		return false, err
 	}
-	defer os.Remove(staged.Name())
-	_, writeErr := staged.Write(contents)
-	if err := errors.Join(writeErr, staged.Close()); err != nil {
-		return false, err
-	}
+	defer os.Remove(staged)
 
-	err = os.Link(staged.Name(), path)
+	err = os.Link(staged, path)
 	if err == nil {
 		return true, nil
 	}
@@ -44,4 +40,17 @@ func installFile(path string, contents []byte) (bool, error) {
 		}
 	}
 	return false, os.ErrExist
+}
+
+func stageFile(directory string, contents []byte) (string, error) {
+	staged, err := os.CreateTemp(directory, ".backlog-*")
+	if err != nil {
+		return "", err
+	}
+	_, writeErr := staged.Write(contents)
+	if err := errors.Join(writeErr, staged.Close()); err != nil {
+		os.Remove(staged.Name())
+		return "", err
+	}
+	return staged.Name(), nil
 }

@@ -100,3 +100,32 @@ timestamp_utc,tool,duration_seconds,outcome
 2026-11-21T07:39:51.300Z,planet document clear,0.000,passed
 2026-11-21T07:39:51.300Z,install latest binary and skill result,0.000,passed
 2026-11-21T07:39:51.300Z,completion verification,0.000,passed
+2026-11-21T09:33:32+00:00,check_browser.py,31.526,failed
+2026-11-21T09:34:23+00:00,check_browser.py,41.622,passed
+2026-11-22T07:34:59.899Z,go test ./...,1.001,passed
+2026-11-22T07:34:59.899Z,make install,1.001,passed
+2026-11-22T07:34:59.899Z,git diff --check,0.000,passed
+2026-11-22T07:34:59.899Z,live status,0.199,passed
+2026-11-22T07:34:59.899Z,live status JSON,0.196,passed
+2026-11-22T07:34:59.899Z,Backlog completion,0.000,passed
+2026-11-22T07:41:51.597Z,initial occupied-port regression test,62.427,failed
+2026-11-22T07:41:51.597Z,go test ./...,1.001,passed
+2026-11-22T07:41:51.597Z,make install,1.003,passed
+2026-11-22T07:41:51.597Z,git diff --check,0.000,passed
+2026-11-22T07:41:51.597Z,live verification,0.253,passed
+2026-11-22T07:47:41.573Z,go test final,1.003,passed
+2026-11-22T07:47:41.573Z,make install final,1.001,passed
+2026-11-22T07:47:41.573Z,git diff --check,0.000,passed
+2026-11-22T07:47:41.573Z,isolated launchd verification,0.172,passed
+2026-11-22T07:47:41.573Z,final service verification,0.000,passed
+2026-11-22T07:53:14.471Z,dashboard progress report,0.000,failed
+2026-11-22T07:53:14.471Z,go test ./...,1.002,passed
+2026-11-22T07:53:14.471Z,make install,1.002,passed
+2026-11-22T07:53:14.471Z,git diff --check,0.000,passed
+2026-11-22T07:53:14.471Z,stopped service smoke,0.000,passed
+2026-11-22T07:53:14.471Z,launchd verification,0.438,passed
+2026-11-22T08:12:46.545Z,go test ./...,1.001,passed
+2026-11-22T08:12:46.545Z,make install,1.001,passed
+2026-11-22T08:12:46.545Z,git diff --check,0.000,passed
+2026-11-22T08:12:46.545Z,launchd upgrade,0.000,passed
+2026-11-22T08:12:46.545Z,live verification,0.307,passed

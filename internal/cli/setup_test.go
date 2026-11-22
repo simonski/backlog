@@ -91,7 +91,7 @@ func TestStartLaunchAgentRetriesAndReusesConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(config.Arguments, args) ||
-		!reflect.DeepEqual(config.LabelAndLog, []string{"local.backlog", log}) || config.KeepAlive == nil {
+		!reflect.DeepEqual(config.LabelAndLog, []string{"local.backlog", log, accessLogPath(log)}) || config.KeepAlive == nil {
 		t.Fatalf("unexpected service configuration: %+v", config)
 	}
 	bootstrapErr = nil
@@ -111,6 +111,30 @@ func TestStartLaunchAgentRetriesAndReusesConfiguration(t *testing.T) {
 	got, err := os.ReadFile(plist)
 	if err != nil || !bytes.Equal(got, contents) {
 		t.Fatalf("the existing service file changed: %s (%v)", got, err)
+	}
+}
+
+func TestStartLaunchAgentAddsAccessLogToLegacyConfiguration(t *testing.T) {
+	directory := t.TempDir()
+	plist := filepath.Join(directory, "local.backlog.plist")
+	log := filepath.Join(directory, "backlog.log")
+	args := []string{"/usr/local/bin/backlog", "serve", "-addr", "127.0.0.1:15000"}
+	if err := os.WriteFile(plist, launchAgentPlist(args, log, ""), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const domain = "gui/123"
+	want := [][]string{{"print", domain + "/local.backlog"}, {"bootout", domain + "/local.backlog"}, {"bootstrap", domain, plist}}
+	var commands [][]string
+	already, err := startLaunchAgent(domain, plist, log, "127.0.0.1:15000", args, func(command ...string) error {
+		commands = append(commands, command)
+		return nil
+	})
+	if err != nil || already || !reflect.DeepEqual(commands, want) {
+		t.Fatalf("upgrade failed: already=%t launchctl=%v err=%v", already, commands, err)
+	}
+	contents, err := os.ReadFile(plist)
+	if err != nil || !bytes.Equal(contents, launchAgentPlist(args, log, accessLogPath(log))) {
+		t.Fatalf("unexpected updated plist %q: %v", contents, err)
 	}
 }
 

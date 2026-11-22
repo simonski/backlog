@@ -35,7 +35,7 @@ func requestServer(ctx context.Context, address, method, path string, body, targ
 			return errors.New("request exceeds 1 MiB")
 		}
 	}
-	err := request(ctx, client, method, base+path, payload, target)
+	err := request(ctx, client, method, base+path, payload, target, 0)
 	if err != nil && !versionAvailable {
 		err = fmt.Errorf("%w (server version unavailable)", err)
 	}
@@ -53,8 +53,8 @@ func serverHTTPClient() *http.Client {
 }
 
 func checkServerVersion(ctx context.Context, client *http.Client, base string, diagnostics io.Writer) bool {
-	var advertised wire.ServerVersion
-	if err := request(ctx, client, http.MethodGet, base+"/api/version", nil, &advertised); err != nil || !version.Valid(advertised.Version) {
+	advertised, err := readServerVersion(ctx, client, base)
+	if err != nil {
 		return false
 	}
 	if warning := version.Warning(version.Client, advertised.Version); warning != "" {
@@ -63,7 +63,18 @@ func checkServerVersion(ctx context.Context, client *http.Client, base string, d
 	return true
 }
 
-func request(ctx context.Context, client *http.Client, method, url string, payload []byte, target any) error {
+func readServerVersion(ctx context.Context, client *http.Client, base string) (wire.ServerVersion, error) {
+	var advertised wire.ServerVersion
+	if err := request(ctx, client, http.MethodGet, base+"/api/version", nil, &advertised, 64<<10); err != nil {
+		return advertised, err
+	}
+	if !version.Valid(advertised.Version) {
+		return advertised, errors.New("missing or invalid server version")
+	}
+	return advertised, nil
+}
+
+func request(ctx context.Context, client *http.Client, method, url string, payload []byte, target any, maxResponseBytes int64) error {
 	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(payload))
 	if err != nil {
 		return err
@@ -83,7 +94,11 @@ func request(ctx context.Context, client *http.Client, method, url string, paylo
 		}
 		return errors.New(response.Status)
 	}
-	if err := json.NewDecoder(response.Body).Decode(target); err != nil {
+	var body io.Reader = response.Body
+	if maxResponseBytes > 0 {
+		body = io.LimitReader(body, maxResponseBytes)
+	}
+	if err := json.NewDecoder(body).Decode(target); err != nil {
 		return fmt.Errorf("invalid server response: %w", err)
 	}
 	return nil

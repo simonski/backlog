@@ -10,7 +10,7 @@ brew install simonski/backlog/backlog
 backlog setup
 ```
 
-On macOS, the wizard asks whether to install and start a background service and whether to install the reporting skill. The service runs as the current user, starts at login, and restarts if it exits. If a foreground `backlog serve` is already running, stop it with Ctrl-C before starting the service. Run setup as the same user to reuse the default SQLite database. Pass `-p 15001` for a different port or `-db PATH` to reuse a custom database.
+On macOS, the wizard asks whether to install and start a background service and whether to install the reporting skill. The service runs as the current user, starts at login, and restarts if it exits. If a foreground `backlog serve` is already running, stop it with Ctrl-C before starting the service. Run setup as the same user to reuse the default SQLite database. The default port is `15000`. Use `-p N` to select a port or `-db PATH` to reuse a custom database.
 
 Open [http://127.0.0.1:15000/](http://127.0.0.1:15000/) on the machine running Backlog.
 
@@ -26,7 +26,7 @@ The server writes one access record per HTTP request to stdout. It includes the 
 
 To remove the service from future logins, unload it and remove `~/Library/LaunchAgents/local.backlog.plist`. Run `backlog serve` for foreground operation. On other platforms, the wizard offers skill installation and the server can be started with `backlog serve`.
 
-From a source checkout, run `make` to list targets. Use `make clean build install` to rebuild and install, or `make run` to build and start the server. Select a different port with `make run -- -p 15001` or `backlog serve -p 15001`.
+From a source checkout, run `make` to list targets. Use `make clean build install` to rebuild and install, or `make run` to build and start the server. To set the port explicitly, use `make run -- -p 15000` or `backlog serve -p 15000`.
 
 If the port is already in use, `backlog serve` exits with an error and identifies an existing Backlog instance when it can. Use `-p N` to start on a different port.
 
@@ -67,7 +67,7 @@ Run `backlog status` or its alias `backlog ps` to see `BACKLOG_URL`, detected `b
 
 ```sh
 backlog status
-backlog status -p 15001 -json
+backlog status -p 15000 -json
 BACKLOG_URL=https://backlog.example-tailnet.ts.net/ backlog status
 ```
 
@@ -77,7 +77,7 @@ BACKLOG_URL=https://backlog.example-tailnet.ts.net/ backlog status
 
 Run `backlog menu` from a macOS desktop session to show a ticket icon in the menu bar. **Open Backlog** opens the dashboard in the default browser. **Quick Backlog** opens the live dashboard in a compact window.
 
-The menu uses the running local server. For a custom port, use `backlog menu -p 15001`. Press Ctrl-C in the terminal running the command to remove the icon.
+The menu uses the running local server. To set the port explicitly, use `backlog menu -p 15000`. Press Ctrl-C in the terminal running the command to remove the icon.
 
 ## CLI output
 
@@ -143,7 +143,7 @@ Run `backlog doc -clear` from a project's root to remove all its uploaded docume
 
 ## Reporting skill
 
-The wizard installs the `backlog` skill at `~/.agents/skills/backlog/SKILL.md`. Configure the harness to use that skill from the project directory. For a project-only install, run `backlog setup -dir .agents/skills` from that project. For port 15001, set `HARNESS_ADDR=127.0.0.1:15001` in the harness environment.
+The wizard installs the `backlog` skill at `~/.agents/skills/backlog/SKILL.md`. Configure the harness to use that skill from the project directory. For a project-only install, run `backlog setup -dir .agents/skills` from that project. To set the address explicitly, use `HARNESS_ADDR=127.0.0.1:15000` in the harness environment.
 
 To install just the skill without prompts, run:
 

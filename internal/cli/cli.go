@@ -116,12 +116,13 @@ func showVersion(args []string, out, diagnostics io.Writer) error {
 	}
 	if *asJSON {
 		return writeJSON(out, struct {
-			Client   string `json:"client_version"`
-			Server   string `json:"server_version"`
-			Protocol int    `json:"protocol_version"`
-		}{version.Client, version.Server, version.Protocol})
+			Client         string `json:"client_version"`
+			Server         string `json:"server_version"`
+			Protocol       int    `json:"protocol_version"`
+			ProtocolSemver string `json:"protocol_semver"`
+		}{version.Client, version.Server, version.LegacyProtocol, version.Protocol})
 	}
-	_, err := fmt.Fprintf(out, "CLI version:      %s\nServer version:   %s\nProtocol version: %d\n", version.Client, version.Server, version.Protocol)
+	_, err := fmt.Fprintf(out, "CLI version:      %s\nServer version:   %s\nProtocol version: %s\n", version.Client, version.Server, version.Protocol)
 	return err
 }
 

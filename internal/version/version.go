@@ -8,9 +8,11 @@ import (
 )
 
 const (
-	Client   = "0.14.1"
-	Server   = "0.14.0"
-	Protocol = 1
+	Client         = "0.15.0"
+	Server         = "0.15.0"
+	Protocol       = "1.0.0"
+	LegacyProtocol = 1
+	clientUpgrade  = "upgrade the client (run brew upgrade simonski/backlog/backlog or run make install from an updated checkout)"
 )
 
 func core(value string) ([3]int, bool) {
@@ -49,9 +51,30 @@ func Warning(client, server string) string {
 	if !clientOK || !serverOK || (c[0] == s[0] && c[1] == s[1]) {
 		return ""
 	}
-	older := "client"
+	advice := clientUpgrade
 	if c[0] > s[0] || (c[0] == s[0] && c[1] > s[1]) {
-		older = "server"
+		advice = "upgrade the server"
 	}
-	return fmt.Sprintf("version mismatch: CLI %s, server %s; upgrade the %s", client, server, older)
+	return fmt.Sprintf("version mismatch: CLI %s, server %s; %s", client, server, advice)
+}
+
+// CheckProtocol reports minor-version differences and rejects incompatible major versions.
+func CheckProtocol(server string) (string, error) {
+	clientVersion, _ := core(Protocol)
+	serverVersion, valid := core(server)
+	if !valid || strings.ContainsAny(server, "+-") || serverVersion[0] == 0 {
+		return "", fmt.Errorf("server protocol version unavailable or invalid (%q)", server)
+	}
+	if clientVersion[0] == serverVersion[0] && clientVersion[1] == serverVersion[1] {
+		return "", nil
+	}
+	advice := clientUpgrade
+	if slices.Compare(clientVersion[:], serverVersion[:]) > 0 {
+		advice = "upgrade the server"
+	}
+	detail := fmt.Sprintf("CLI protocol %s, server protocol %s; %s", Protocol, server, advice)
+	if clientVersion[0] != serverVersion[0] {
+		return "", fmt.Errorf("incompatible network protocol: %s", detail)
+	}
+	return "network protocol version mismatch: " + detail, nil
 }

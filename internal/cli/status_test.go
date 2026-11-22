@@ -61,7 +61,7 @@ func TestStatusDistinguishesBacklogForeignListenerAndClosedPort(t *testing.T) {
 			if tc.warning == "" && diagnostics.Len() > 0 || !strings.Contains(diagnostics.String(), tc.warning) {
 				t.Fatalf("stderr=%q, expected %q", &diagnostics, tc.warning)
 			}
-			if tc.code == 0 && (report.ServerVersion != tc.advertised || report.ProtocolVersion != tc.protocol) ||
+			if tc.code == 0 && (report.ServerVersion != tc.advertised || report.ProtocolVersion != tc.protocol || report.ProtocolSemver != version.Protocol) ||
 				tc.code != 0 && report.ServerVersion != "" {
 				t.Fatalf("incorrect server version: %+v", report)
 			}

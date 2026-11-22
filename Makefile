@@ -1,7 +1,6 @@
 .DEFAULT_GOAL := help
 
 BUILD_DIR ?= bin
-BINDIR ?= $(HOME)/.local/bin
 BINARY := $(BUILD_DIR)/backlog
 
 # After --, GNU Make treats the port flag and value as additional goals.
@@ -28,7 +27,7 @@ help:
 		'help' 'Show available targets (default)' \
 		'clean' 'Remove the built binary' \
 		'build' 'Build bin/backlog' \
-		'install' 'Install backlog into BINDIR (default: ~/.local/bin)' \
+		'install' 'Install backlog into the Go bin directory (override with BINDIR)' \
 		'run' 'Build and serve on 0.0.0.0 (default port: 15000)' \
 		'run -- -p N' 'Build and serve on port N' \
 		'run PORT=N' 'Build and serve on port N'
@@ -44,11 +43,20 @@ build:
 		go build -o "$$stage" . && mv -f "$$stage" "$(BINARY)"
 
 install: build
-	install -d "$(BINDIR)"
-	@printf '%s\n' "Installing $(BINDIR)/backlog"
-	@stage=$$(mktemp "$(BINDIR)/.backlog.XXXXXX") && \
+	@set -e; \
+	bindir="$(BINDIR)"; \
+	if [ -z "$$bindir" ]; then \
+		bindir=$$(go env GOBIN); \
+	fi; \
+	if [ -z "$$bindir" ]; then \
+		gopath=$$(go env GOPATH); \
+		bindir="$${gopath%%:*}/bin"; \
+	fi; \
+	install -d "$$bindir"; \
+	printf '%s\n' "Installing $$bindir/backlog"; \
+	stage=$$(mktemp "$$bindir/.backlog.XXXXXX"); \
 		trap 'rm -f "$$stage"' EXIT && \
-		install -m 755 "$(BINARY)" "$$stage" && mv -f "$$stage" "$(BINDIR)/backlog"
+		install -m 755 "$(BINARY)" "$$stage" && mv -f "$$stage" "$$bindir/backlog"
 
 run: build
 	@exec "$(BINARY)" serve $(RUN_PORT)

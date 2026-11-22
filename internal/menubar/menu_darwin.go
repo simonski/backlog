@@ -18,6 +18,8 @@ import (
 	"runtime"
 	"runtime/cgo"
 	"unsafe"
+
+	"harness.engineering/internal/wire"
 )
 
 const Available = true
@@ -30,8 +32,8 @@ func init() {
 }
 
 type menuCallbacks struct {
-	save           func(Settings) error
-	versionChanged func(string)
+	save         func(Settings) error
+	checkVersion func(wire.ServerVersion) bool
 }
 
 //export backlogMenuSave
@@ -44,16 +46,19 @@ func backlogMenuSave(handle C.uintptr_t, url, username *C.char) *C.char {
 }
 
 //export backlogMenuVersion
-func backlogMenuVersion(handle C.uintptr_t, version *C.char) {
+func backlogMenuVersion(handle C.uintptr_t, version, semver *C.char, legacy C.long) C.int {
 	callbacks := cgo.Handle(handle).Value().(menuCallbacks)
-	callbacks.versionChanged(C.GoString(version))
+	if callbacks.checkVersion(wire.ServerVersion{Version: C.GoString(version), Protocol: int(legacy), ProtocolSemver: C.GoString(semver)}) {
+		return 1
+	}
+	return 0
 }
 
-func Run(ctx context.Context, settings Settings, showSettings bool, save func(Settings) error, versionChanged func(string)) error {
+func Run(ctx context.Context, settings Settings, showSettings bool, save func(Settings) error, checkVersion func(wire.ServerVersion) bool) error {
 	if ctx.Err() != nil {
 		return nil
 	}
-	handle := cgo.NewHandle(menuCallbacks{save: save, versionChanged: versionChanged})
+	handle := cgo.NewHandle(menuCallbacks{save: save, checkVersion: checkVersion})
 	defer handle.Delete()
 	address := C.CString(settings.DashboardURL)
 	defer C.free(unsafe.Pointer(address))

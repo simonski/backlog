@@ -135,7 +135,10 @@ func fetchProjects(ctx context.Context, flags *flag.FlagSet, address string, que
 	base = strings.TrimRight(base, "/")
 	client := serverHTTPClient()
 	defer client.CloseIdleConnections()
-	versionAvailable := checkServerVersion(ctx, client, base, diagnostics)
+	versionAvailable, err := checkServerVersion(ctx, client, base, diagnostics)
+	if err != nil {
+		return nil, err
+	}
 	var projects []model.ProjectListing
 	endpoint := base + "/api/projects"
 	if len(query) != 0 {

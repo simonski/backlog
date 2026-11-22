@@ -4,7 +4,7 @@
 #include <stdlib.h>
 
 extern char *backlogMenuSave(uintptr_t handle, char *url, char *username);
-extern void backlogMenuVersion(uintptr_t handle, char *version);
+extern int backlogMenuVersion(uintptr_t handle, char *version, char *semver, long legacy);
 
 @interface BacklogMenu : NSObject <NSMenuDelegate, NSURLSessionTaskDelegate>
 @property (strong) NSURL *dashboardURL;
@@ -51,8 +51,13 @@ extern void backlogMenuVersion(uintptr_t handle, char *version);
     return YES;
 }
 
-- (void)poll {
-    if (self.pollTask != nil || self.dashboardURL == nil) return;
+- (NSDictionary *)pollResult:(NSData *)data response:(NSURLResponse *)response error:(NSError *)error {
+    if (error != nil || ![response isKindOfClass:NSHTTPURLResponse.class] || ((NSHTTPURLResponse *)response).statusCode != 200 || data == nil) return nil;
+    id decoded = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    return [decoded isKindOfClass:NSDictionary.class] ? decoded : nil;
+}
+
+- (void)pollHeartbeat {
     NSURL *endpoint = [[self.dashboardURL URLByAppendingPathComponent:@"api"] URLByAppendingPathComponent:@"client"];
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:endpoint];
     request.HTTPMethod = @"POST";
@@ -61,21 +66,42 @@ extern void backlogMenuVersion(uintptr_t handle, char *version);
     NSUInteger generation = self.generation;
     __weak BacklogMenu *weakSelf = self;
     self.pollTask = [self.session dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        NSDictionary *result = nil;
-        if (error == nil && [response isKindOfClass:NSHTTPURLResponse.class] && ((NSHTTPURLResponse *)response).statusCode == 200 && data != nil) {
-            id decoded = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-            if ([decoded isKindOfClass:NSDictionary.class]) result = decoded;
-        }
+        NSDictionary *result = [weakSelf pollResult:data response:response error:error];
         dispatch_async(dispatch_get_main_queue(), ^{
             BacklogMenu *menu = weakSelf;
             if (menu == nil || menu.generation != generation) return;
             menu.pollTask = nil;
             menu.polled = YES;
-            NSString *serverVersion = [result[@"server_version"] isKindOfClass:NSString.class] ? result[@"server_version"] : @"";
             NSArray *projects = [result[@"projects"] isKindOfClass:NSArray.class] ? result[@"projects"] : nil;
             menu.connected = projects != nil;
             if (menu.connected) menu.projects = projects;
-            backlogMenuVersion(menu.handle, (char *)serverVersion.UTF8String);
+        });
+    }];
+    [self.pollTask resume];
+}
+
+- (void)poll {
+    if (self.pollTask != nil || self.dashboardURL == nil) return;
+    NSURL *endpoint = [[self.dashboardURL URLByAppendingPathComponent:@"api"] URLByAppendingPathComponent:@"version"];
+    NSUInteger generation = self.generation;
+    __weak BacklogMenu *weakSelf = self;
+    self.pollTask = [self.session dataTaskWithURL:endpoint completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        NSDictionary *result = [weakSelf pollResult:data response:response error:error];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            BacklogMenu *menu = weakSelf;
+            if (menu == nil || menu.generation != generation) return;
+            menu.pollTask = nil;
+            NSString *appVersion = [result[@"server_version"] isKindOfClass:NSString.class] ? result[@"server_version"] : @"";
+            id protocol = result[@"protocol_semver"];
+            NSString *semver = [protocol isKindOfClass:NSString.class] ? protocol : (protocol == nil ? @"" : @"invalid");
+            id legacy = result[@"protocol_version"];
+            long major = [legacy isKindOfClass:NSNumber.class] ? [legacy longValue] : 0;
+            if (backlogMenuVersion(menu.handle, (char *)appVersion.UTF8String, (char *)semver.UTF8String, major)) {
+                [menu pollHeartbeat];
+            } else {
+                menu.polled = YES;
+                menu.connected = NO;
+            }
         });
     }];
     [self.pollTask resume];

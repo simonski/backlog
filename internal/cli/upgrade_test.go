@@ -24,9 +24,9 @@ func TestUpgradeLeavesCurrentAndNewerServersAlone(t *testing.T) {
 		name, advertised, output, diagnostic string
 		protocol, exit                       int
 	}{
-		{"current", version.Server, "already on " + version.Server, "", version.Protocol, 0},
-		{"newer", "99.0.0", "", "upgrade the client", version.Protocol, 1},
-		{"different protocol", version.Server, "", "bundled server", version.Protocol + 1, 1},
+		{"current", version.Server, "already on " + version.Server, "", version.LegacyProtocol, 0},
+		{"newer", "99.0.0", "", "upgrade the client", version.LegacyProtocol, 1},
+		{"different protocol", version.Server, "", "bundled server", version.LegacyProtocol + 1, 1},
 		{"unavailable", "invalid", "", "server version unavailable", 0, 1},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {

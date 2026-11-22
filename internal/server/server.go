@@ -113,7 +113,9 @@ func localRequest(r *http.Request) bool {
 }
 
 func (app server) version(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, wire.ServerVersion{Version: version.Server, Protocol: version.Protocol})
+	writeJSON(w, http.StatusOK, wire.ServerVersion{
+		Version: version.Server, Protocol: version.LegacyProtocol, ProtocolSemver: version.Protocol,
+	})
 }
 
 func (app server) report(w http.ResponseWriter, r *http.Request) {

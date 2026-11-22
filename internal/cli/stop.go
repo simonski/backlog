@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"harness.engineering/internal/local"
-	"harness.engineering/internal/version"
 	"harness.engineering/internal/wire"
 )
 
@@ -30,11 +29,11 @@ func stopServer(ctx context.Context, address string, out, diagnostics io.Writer)
 	if err != nil {
 		return fmt.Errorf("cannot stop Backlog at %s (server version unavailable)", base)
 	}
-	if warning := version.Warning(version.Client, advertised.Version); warning != "" {
-		fmt.Fprintln(diagnostics, warning)
-	}
-	if advertised.Protocol < 1 {
+	if advertised.NetworkProtocol() == "" {
 		return fmt.Errorf("listener at %s did not identify as Backlog (server version unavailable)", base)
+	}
+	if err := checkCompatibility(advertised, diagnostics); err != nil {
+		return err
 	}
 	launchCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	managed := managedListeners(launchCtx, address)

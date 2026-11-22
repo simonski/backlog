@@ -40,18 +40,18 @@ func upgradeServer(ctx context.Context, args []string, out, diagnostics io.Write
 		return readServerVersion(ctx, client, base)
 	}
 	previous, err := probe(ctx)
-	if err != nil || previous.Protocol < 1 {
+	if err != nil || previous.NetworkProtocol() == "" {
 		return fmt.Errorf("cannot upgrade Backlog at %s (server version unavailable)", base)
 	}
-	if previous.Version == version.Server && previous.Protocol == version.Protocol {
+	if previous.Version == version.Server && previous.NetworkProtocol() == version.Protocol {
 		_, err := fmt.Fprintf(out, "Backlog server at %s is already on %s.\n", base, version.Server)
 		return err
 	}
-	if warning := version.Warning(version.Client, previous.Version); warning != "" {
-		fmt.Fprintln(diagnostics, warning)
+	if err := checkCompatibility(previous, diagnostics); err != nil {
+		fmt.Fprintln(diagnostics, err)
 	}
 	if !version.Older(previous.Version, version.Server) {
-		return fmt.Errorf("server %s uses protocol %d, bundled server %s uses protocol %d", previous.Version, previous.Protocol, version.Server, version.Protocol)
+		return fmt.Errorf("server %s uses protocol %s, bundled server %s uses protocol %s", previous.Version, previous.NetworkProtocol(), version.Server, version.Protocol)
 	}
 	if runtime.GOOS != "darwin" {
 		return errors.New("automatic upgrade requires the macOS Backlog launchd service. Update the executable used by your server supervisor and restart it")
@@ -61,7 +61,7 @@ func upgradeServer(ctx context.Context, args []string, out, diagnostics io.Write
 	cancel()
 	if len(managed) != 1 {
 		// Replacing the executable may already have triggered the server's watcher.
-		if current, err := probe(ctx); err == nil && current.Version == version.Server && current.Protocol == version.Protocol {
+		if current, err := probe(ctx); err == nil && current.Version == version.Server && current.NetworkProtocol() == version.Protocol {
 			_, err := fmt.Fprintf(out, "Backlog server at %s is already on %s.\n", base, version.Server)
 			return err
 		}
@@ -91,11 +91,11 @@ func waitForServerUpgrade(ctx context.Context, probe func(context.Context) (wire
 	defer ticker.Stop()
 	last := "server version unavailable"
 	for {
-		if current, err := probe(wait); err == nil && current.Protocol > 0 {
-			if current.Version == version.Server && current.Protocol == version.Protocol {
+		if current, err := probe(wait); err == nil && current.NetworkProtocol() != "" {
+			if current.Version == version.Server && current.NetworkProtocol() == version.Protocol {
 				return nil
 			}
-			last = fmt.Sprintf("server reports version %s and protocol %d", current.Version, current.Protocol)
+			last = fmt.Sprintf("server reports version %s and protocol %s", current.Version, current.NetworkProtocol())
 		}
 		select {
 		case <-wait.Done():

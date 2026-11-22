@@ -12,48 +12,47 @@ brew update
 brew install simonski/backlog/backlog
 ```
 
-From a source checkout, run `make install` to install into `~/.local/bin`. See `backlog -help` for commands and [SPECIFICATION.md](SPECIFICATION.md) for behavior.
+To build from source, install the latest stable Go release and run `make install` from the checkout. The binary goes into Go’s install directory, `GOBIN` if set or `bin` under the first `GOPATH` entry. Add that directory to `PATH` to run `backlog` by name. See `backlog -help` for commands and [SPECIFICATION.md](SPECIFICATION.md) for behavior.
 
-## Setup (client)
+See [SPECIFICATION_GO.md](SPECIFICATION_GO.md) for the reusable Go application conventions used by this project.
 
-Replace `<tailnet>` with the part of your tailnet DNS name before `.ts.net`, or use your Backlog server URL.
+## Setup
 
-```sh
-export BACKLOG_URL='https://backlog.<tailnet>.ts.net'
-backlog setup
-```
+Run `backlog setup`. Choose **server** to review the local port, server version, and service registration. Choose **client** to save the server URL and an optional username. Backlog initializes SQLite automatically when the server starts.
 
-1. Choose **client**, press Enter to accept `BACKLOG_URL`, and optionally enter a monitoring username.
-2. On macOS, optionally run `backlog menu`. It starts the menu bar client in the background and returns to the prompt. Use **Settings…** to edit the saved URL and username, or **Quit Backlog** to close the client. An exported `BACKLOG_URL` takes precedence at startup.
-3. Run `backlog install-skill` wherever your agent harness runs. Reporting requires a local Backlog server on that host.
-4. Run `backlog project ls` to verify that the CLI can reach the server. Then open the value of `BACKLOG_URL` in your browser.
+## Run as server
 
-## Setup (server)
+### Mac mini on Tailscale
 
-Run `backlog setup` and choose **server** to check the local port, server version, and launchd registration. Follow the printed advice.
-
-- On macOS, `backlog setup -start` installs and starts the launchd service. Elsewhere, run `backlog serve`.
-- After installing a newer Backlog binary, run `backlog upgrade` on the macOS server host to update and verify the running launchd service. Use `-p N` if the server listens on a different port.
-- Open [http://127.0.0.1:15000/](http://127.0.0.1:15000/) on the host. Use `backlog status` to check it or `backlog restart` to print the launchd command.
-- Run `backlog install-skill` where the harness reports work. From a project's checkout, run `backlog project init` to register its GitHub repository or a path such as `~/code/example`. Ticket reporting uses the local server.
-
-On macOS, follow the service logs with:
-
-```sh
-tail -F ~/Library/Logs/backlog.log ~/Library/Logs/backlog-access.log
-```
-
-## Setup (Tailscale)
-
-Publish Backlog as `https://backlog.<tailnet>.ts.net` through a Tailscale Service. HTTPS terminates on port `443` and forwards to the local Backlog port `15000`.
-
-1. In the Tailscale admin console, apply a tag to the Backlog host and create `svc:backlog` with endpoint `tcp:443`. Grant access to the intended tailnet clients. [Tailscale Services](https://tailscale.com/docs/features/tailscale-services)
-2. On the tagged host, run:
+1. On the Mac mini, run `backlog setup -start -addr 127.0.0.1:15000` to install and start the per-user launchd service. Verify it with `backlog status`.
+2. In the Tailscale admin console, tag the Mac mini, create `svc:backlog` with endpoint `tcp:443`, and grant access to the intended tailnet clients. [Tailscale Services](https://tailscale.com/docs/features/tailscale-services)
+3. On the Mac mini, run the proxy command.
 
    ```sh
    tailscale serve --service=svc:backlog --https=443 http://127.0.0.1:15000
    ```
 
-3. If approval is pending, approve the host under **Services → backlog → Service hosts**. Open the HTTPS URL from a tailnet device.
+4. If approval is pending, approve the host under **Services → backlog → Service hosts**. From an authorized device, open `https://backlog.<tailnet>.ts.net/`.
 
-To allow archive and project-color controls over Tailscale, bind `backlog serve` to `127.0.0.1:15000` with `-addr`, set `-tailscale-archive-host` to the full service hostname, and set `-tailscale-archive-user` to the permitted login.
+Use `backlog restart` to print the launchd restart command. After `brew upgrade simonski/backlog/backlog`, run `backlog upgrade` to update and verify the running service. Logs are in `~/Library/Logs/backlog.log` and `~/Library/Logs/backlog-access.log`.
+
+To enable archive and project-color controls over Tailscale, keep the loopback bind and add `-tailscale-archive-host` and `-tailscale-archive-user` to the service’s `backlog serve` arguments. Use the full service hostname and the permitted Tailscale login. [Backlog specification](SPECIFICATION.md)
+
+### Local foreground
+
+Run `backlog serve -addr 127.0.0.1:15000` on any supported computer and open [http://localhost:15000/](http://localhost:15000/). Keep the terminal open while the server runs. Use `-p N` on `serve` and `status` to select a different port.
+
+### exe.dev over HTTPS
+
+1. On the VM, install Backlog from a source checkout with `make install`. Configure a systemd service to run `backlog serve -addr 127.0.0.1:15000` as the installing user. Use the absolute executable path printed by `make install` in `ExecStart` and enable the service to start at boot. [exe.dev Go deployment guide](https://exe.dev/deploy/go)
+2. From your computer, run `ssh exe.dev share port <vm-name> 15000`, replacing `<vm-name>` with the VM name. Open `https://<vm-name>.exe.xyz/` and sign in to exe.dev. The HTTPS proxy is private by default. [exe.dev proxy documentation](https://exe.dev/docs/proxy)
+
+## Run as client
+
+Run `backlog setup`, choose **client**, and save the URL from the server profile. Run `backlog project ls` to check CLI access or `backlog menu` to start the macOS menu bar client. Use **Settings…** to edit the saved URL or username. An exported `BACKLOG_URL` takes precedence. For a private exe.dev deployment, use the browser dashboard to complete exe.dev sign-in.
+
+If Backlog warns that the client is older than the server, run `brew upgrade simonski/backlog/backlog` or rerun `make install` from an updated source checkout. Run `backlog version` to check the installed build.
+
+`backlog version` shows the CLI, bundled server, and network protocol versions. `backlog status` shows the running server’s versions. Minor protocol differences produce a warning, and incompatible protocol major versions prevent the operation. The original integer protocol `1` is compatible with protocol `1.0.0`.
+
+To report work, run `backlog install-skill` on the harness host and `backlog project init` from the project checkout. Ticket reporting uses a local Backlog server on the harness host.

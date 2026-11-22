@@ -22,7 +22,10 @@ func requestServer(ctx context.Context, address, method, path string, body, targ
 	client := serverHTTPClient()
 	defer client.CloseIdleConnections()
 	base := "http://" + address
-	versionAvailable := checkServerVersion(ctx, client, base, diagnostics)
+	versionAvailable, err := checkServerVersion(ctx, client, base, diagnostics)
+	if err != nil {
+		return err
+	}
 
 	var payload []byte
 	if body != nil {
@@ -35,7 +38,7 @@ func requestServer(ctx context.Context, address, method, path string, body, targ
 			return errors.New("request exceeds 1 MiB")
 		}
 	}
-	err := request(ctx, client, method, base+path, payload, target, 0)
+	err = request(ctx, client, method, base+path, payload, target, 0)
 	if err != nil && !versionAvailable {
 		err = fmt.Errorf("%w (server version unavailable)", err)
 	}
@@ -52,21 +55,29 @@ func serverHTTPClient() *http.Client {
 	}
 }
 
-func checkServerVersion(ctx context.Context, client *http.Client, base string, diagnostics io.Writer) bool {
+func checkServerVersion(ctx context.Context, client *http.Client, base string, diagnostics io.Writer) (bool, error) {
 	advertised, err := readServerVersion(ctx, client, base)
-	if err != nil {
-		return false
+	if err != nil && advertised.NetworkProtocol() == "" {
+		return false, nil
 	}
+	return err == nil, checkCompatibility(advertised, diagnostics)
+}
+
+func checkCompatibility(advertised wire.ServerVersion, diagnostics io.Writer) error {
 	if warning := version.Warning(version.Client, advertised.Version); warning != "" {
 		fmt.Fprintln(diagnostics, warning)
 	}
-	return true
+	warning, err := version.CheckProtocol(advertised.NetworkProtocol())
+	if warning != "" {
+		fmt.Fprintln(diagnostics, warning)
+	}
+	return err
 }
 
 func readServerVersion(ctx context.Context, client *http.Client, base string) (wire.ServerVersion, error) {
 	var advertised wire.ServerVersion
 	if err := request(ctx, client, http.MethodGet, base+"/api/version", nil, &advertised, 64<<10); err != nil {
-		return advertised, err
+		return wire.ServerVersion{}, err
 	}
 	if !version.Valid(advertised.Version) {
 		return advertised, errors.New("missing or invalid server version")

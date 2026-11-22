@@ -45,7 +45,7 @@ func TestReportVersionCompatibility(t *testing.T) {
 					http.NotFound(w, r)
 					return
 				}
-				json.NewEncoder(w).Encode(wire.ServerVersion{Version: tc.serverVersion})
+				json.NewEncoder(w).Encode(wire.ServerVersion{Version: tc.serverVersion, Protocol: version.LegacyProtocol})
 			})
 			mux.HandleFunc("POST /api/reports", func(w http.ResponseWriter, r *http.Request) {
 				requests <- r.URL.Path
@@ -89,6 +89,9 @@ func TestReportVersionCompatibility(t *testing.T) {
 					!strings.Contains(diagnostics.String(), tc.serverVersion)) {
 				t.Fatalf("diagnostic omitted versions: %q", &diagnostics)
 			}
+			if tc.diagnostic == "upgrade the client" && !strings.Contains(diagnostics.String(), "brew upgrade simonski/backlog/backlog") {
+				t.Fatalf("diagnostic omitted the upgrade command: %q", &diagnostics)
+			}
 		})
 	}
 }
@@ -96,7 +99,7 @@ func TestReportVersionCompatibility(t *testing.T) {
 func TestReportOutputFormats(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(wire.ServerVersion{Version: version.Client})
+		json.NewEncoder(w).Encode(wire.ServerVersion{Version: version.Client, Protocol: version.LegacyProtocol})
 	})
 	mux.HandleFunc("POST /api/reports", func(w http.ResponseWriter, r *http.Request) {
 		var report model.Report
@@ -125,6 +128,56 @@ func TestReportOutputFormats(t *testing.T) {
 			code := (App{}).Run(t.Context(), args, strings.NewReader("[]"), &out, &diagnostics)
 			if code != 0 || diagnostics.Len() != 0 || out.String() != tc.want {
 				t.Fatalf("exit=%d stdout=%q stderr=%q", code, &out, &diagnostics)
+			}
+		})
+	}
+}
+
+func TestNetworkProtocolCompatibility(t *testing.T) {
+	for _, tc := range []struct {
+		name, protocol, diagnostic string
+		allowOperation             bool
+	}{
+		{"legacy integer", "", "", true},
+		{"patch only", "1.0.9", "", true},
+		{"newer minor", "1.1.0", "network protocol version mismatch", true},
+		{"incompatible major", "2.0.0", "incompatible network protocol", false},
+		{"invalid semantic version", "1.2", "server protocol version unavailable or invalid", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			service := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/version" {
+					json.NewEncoder(w).Encode(wire.ServerVersion{
+						Version: version.Client, Protocol: version.LegacyProtocol, ProtocolSemver: tc.protocol,
+					})
+					return
+				}
+				if !tc.allowOperation || r.URL.Path != "/api/reports" {
+					t.Errorf("unexpected operation %s %s", r.Method, r.URL.Path)
+					http.NotFound(w, r)
+					return
+				}
+				json.NewEncoder(w).Encode(model.Result{ProjectID: 7, Reported: 1})
+			}))
+			defer service.Close()
+			address := strings.TrimPrefix(service.URL, "http://")
+			commands := [][]string{{"task", "-addr", address, "-id", "task", "-title", "Work", "-json"}}
+			if !tc.allowOperation {
+				commands = append(commands, []string{"project", "ls", "-addr", address, "-json"}, []string{"serve", "-stop", "-addr", address})
+			}
+			for _, command := range commands {
+				var out, diagnostics bytes.Buffer
+				exit := (App{}).Run(t.Context(), command, nil, &out, &diagnostics)
+				if tc.allowOperation && (exit != 0 || !json.Valid(out.Bytes())) || !tc.allowOperation && (exit == 0 || out.Len() != 0) {
+					t.Fatalf("%v: exit=%d stdout=%q stderr=%q", command, exit, &out, &diagnostics)
+				}
+				if tc.diagnostic == "" && diagnostics.Len() != 0 || !strings.Contains(diagnostics.String(), tc.diagnostic) {
+					t.Fatalf("%v: expected diagnostic %q, got %q", command, tc.diagnostic, &diagnostics)
+				}
+				if tc.protocol == "2.0.0" && !strings.Contains(diagnostics.String(), "brew upgrade simonski/backlog/backlog") {
+					t.Fatalf("%v: missing client upgrade command in %q", command, &diagnostics)
+				}
 			}
 		})
 	}

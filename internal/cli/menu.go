@@ -12,6 +12,7 @@ import (
 	"harness.engineering/internal/menubar"
 	"harness.engineering/internal/model"
 	"harness.engineering/internal/version"
+	"harness.engineering/internal/wire"
 )
 
 func runMenu(ctx context.Context, args []string, diagnostics io.Writer) error {
@@ -65,24 +66,25 @@ func runMenu(ctx context.Context, args []string, diagnostics io.Writer) error {
 		}
 		return saveClientSettings(path, next)
 	}
-	lastVersion := "unknown"
-	versionChanged := func(serverVersion string) {
-		if !version.Valid(serverVersion) {
-			serverVersion = ""
+	var lastVersion wire.ServerVersion
+	checked, compatible := false, false
+	checkVersion := func(advertised wire.ServerVersion) bool {
+		if checked && lastVersion == advertised {
+			return compatible
 		}
-		if lastVersion == serverVersion {
-			return
-		}
-		lastVersion = serverVersion
-		if serverVersion == "" {
+		checked, lastVersion, compatible = true, advertised, false
+		if !version.Valid(advertised.Version) {
 			fmt.Fprintln(diagnostics, "Backlog server version unavailable.")
-		} else if warning := version.Warning(version.Client, serverVersion); warning != "" {
-			fmt.Fprintln(diagnostics, warning)
+		} else if err := checkCompatibility(advertised, diagnostics); err != nil {
+			fmt.Fprintln(diagnostics, err)
+		} else {
+			compatible = true
 		}
+		return compatible
 	}
 	settings.DashboardURL = strings.TrimSpace(settings.DashboardURL)
 	if !initialURLValid {
 		settings.DashboardURL = ""
 	}
-	return menubar.Run(ctx, settings, !initialURLValid, save, versionChanged)
+	return menubar.Run(ctx, settings, !initialURLValid, save, checkVersion)
 }

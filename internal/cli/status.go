@@ -24,6 +24,7 @@ type statusReport struct {
 	Server          string `json:"server"`
 	ServerVersion   string `json:"server_version,omitempty"`
 	ProtocolVersion int    `json:"protocol_version,omitempty"`
+	ProtocolSemver  string `json:"protocol_semver,omitempty"`
 	ServeProcess    string `json:"serve_process"`
 	ServePIDs       []int  `json:"serve_pids"`
 	Background      string `json:"background_service"`
@@ -129,15 +130,16 @@ func probeServer(ctx context.Context, address string, report *statusReport, diag
 	client.Timeout = 2 * time.Second
 	defer client.CloseIdleConnections()
 	advertised, err := readServerVersion(ctx, client, report.LocalURL)
-	if err != nil || advertised.Protocol < 1 {
+	if err != nil || advertised.NetworkProtocol() == "" {
 		report.Server = "listener did not identify as Backlog"
 		return
 	}
 	report.Server = "running"
 	report.ServerVersion = advertised.Version
 	report.ProtocolVersion = advertised.Protocol
-	if warning := version.Warning(version.Client, advertised.Version); warning != "" {
-		fmt.Fprintln(diagnostics, warning)
+	report.ProtocolSemver = advertised.NetworkProtocol()
+	if err := checkCompatibility(advertised, diagnostics); err != nil {
+		fmt.Fprintln(diagnostics, err)
 	}
 }
 
@@ -152,7 +154,7 @@ func writeStatus(out io.Writer, address string, report statusReport) error {
 	}
 	server := report.Server
 	if report.ServerVersion != "" {
-		server += fmt.Sprintf(" (version %s, protocol %d)", report.ServerVersion, report.ProtocolVersion)
+		server += fmt.Sprintf(" (version %s, protocol %s)", report.ServerVersion, report.ProtocolSemver)
 	}
 	_, err := fmt.Fprintf(out, "BACKLOG_URL:     %s\nLocal endpoint:  %s\nPort %s: %s\nCLI version:     %s (bundled server %s)\nBacklog server:  %s\nbacklog serve:   %s\nBackground:      %s\n",
 		report.BacklogURL, report.LocalURL, address, report.Port, report.ClientVersion, report.BundledVersion, server, process, report.Background)

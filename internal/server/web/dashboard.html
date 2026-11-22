@@ -34,9 +34,7 @@
             <div class="project-heading-title">
               <h1>{{.Title}}</h1>
               {{template "blocked-attention" .Selected.Blocked}}
-              {{if .CanEdit}}
-                <button id="archive-project-button" class="archive-button" type="button" aria-label="Archive project" title="Archive project" data-archive-confirm data-archive-kind="project" data-archive-name="{{.Title}}" data-archive-action="/projects/{{.Selected.ID}}/archive">{{template "archive-icon"}}</button>
-              {{end}}
+              <button id="archive-project-button" class="archive-button" type="button" aria-label="Archive project" title="Archive project" data-archive-confirm data-archive-kind="project" data-archive-name="{{.Title}}" data-archive-action="/projects/{{.Selected.ID}}/archive">{{template "archive-icon"}}</button>
             </div>
             <p class="path">{{.Selected.Identifier}}</p>
           </div>
@@ -50,18 +48,17 @@
           {{range .Groups}}
             {{$status := .Status}}
             {{$archiveStatus := .ArchiveStatus}}
-            {{$canArchive := and $.CanEdit $archiveStatus}}
-            <section class="task-group {{$status}}" aria-labelledby="group-{{$status}}"{{if $canArchive}} id="column-{{$status}}" data-archive-menu data-archive-kind="column" data-archive-action="/projects/{{$.Selected.ID}}/archive/{{$archiveStatus}}" data-archive-name="{{.Label}}" aria-haspopup="menu" tabindex="0"{{if not .Tasks}} data-archive-empty{{end}}{{end}}>
+            <section class="task-group {{$status}}" aria-labelledby="group-{{$status}}"{{if $archiveStatus}} id="column-{{$status}}" data-archive-menu data-archive-kind="column" data-archive-action="/projects/{{$.Selected.ID}}/archive/{{$archiveStatus}}" data-archive-name="{{.Label}}" aria-haspopup="menu" tabindex="0"{{if not .Tasks}} data-archive-empty{{end}}{{end}}>
               <div class="task-group-heading">
                 <h2 id="group-{{.Status}}">{{.Label}} <span class="count">{{len .Tasks}}</span></h2>
-                {{if and $canArchive (eq $status "done")}}
-                  <button id="archive-done-button" class="archive-button" type="button" aria-label="Archive all Done tickets" title="Archive all Done tickets" data-archive-confirm{{if not .Tasks}} disabled{{end}}>{{template "archive-icon"}}</button>
+                {{if $archiveStatus}}
+                  <button id="archive-{{$status}}-button" class="archive-button" type="button" aria-label="Archive all {{.Label}} tickets" title="Archive all {{.Label}} tickets" data-archive-confirm{{if not .Tasks}} disabled{{end}}>{{template "archive-icon"}}</button>
                 {{end}}
               </div>
               {{if .Tasks}}
                 <ul class="task-list">
                   {{range .Tasks}}
-                    <li class="task" data-task-id="{{.ID}}" data-task-status="{{$status}}"{{if $.CanEdit}} data-archive-menu data-archive-kind="ticket" data-archive-ticket="{{ticketKey .ID}}" data-archive-name="{{.Title}}" data-archive-action="/projects/{{$.Selected.ID}}/archive/ticket" aria-haspopup="menu" tabindex="0"{{end}}>
+                    <li class="task" data-task-id="{{.ID}}" data-task-status="{{$status}}" data-archive-menu data-archive-kind="ticket" data-archive-ticket="{{ticketKey .ID}}" data-archive-name="{{.Title}}" data-archive-action="/projects/{{$.Selected.ID}}/archive/ticket" aria-haspopup="menu" tabindex="0">
                       <h3>{{if eq $status "doing"}}{{template "activity"}}{{end}}{{.Title}}</h3>
                       {{if .StartedAt}}
                         <p class="task-timing">Elapsed <span role="timer" data-started-at="{{milliseconds .StartedAt}}" data-active-ms="{{milliseconds .ActiveNanos}}">{{elapsedTime .ActiveNanos .StartedAt}}</span></p>
@@ -101,36 +98,34 @@
       {{end}}
     </main>
   </div>
-  {{if .CanEdit}}
-    <div class="archive-menu" id="archive-menu" role="menu" aria-label="Archive actions" hidden>
-      <button type="button" role="menuitem">{{template "archive-icon"}} <span>Archive</span></button>
-      <div class="project-color-options" id="project-color-options" role="group" aria-label="Project color" hidden>
-        <p>Project color</p>
-        <div class="project-color-swatches">
-          {{range .ColorPresets}}
-            <button type="button" role="menuitemradio" aria-checked="false" aria-label="{{.Name}}" title="{{.Name}}" data-project-color="{{.Key}}">
-              <svg width="16" height="16" aria-hidden="true"><rect width="16" height="16" rx="3" fill="{{.Value}}"/></svg>
-            </button>
-          {{end}}
-        </div>
+  <div class="archive-menu" id="archive-menu" role="menu" aria-label="Archive actions" hidden>
+    <button type="button" role="menuitem">{{template "archive-icon"}} <span>Archive</span></button>
+    <div class="project-color-options" id="project-color-options" role="group" aria-label="Project color" hidden>
+      <p>Project color</p>
+      <div class="project-color-swatches">
+        {{range .ColorPresets}}
+          <button type="button" role="menuitemradio" aria-checked="false" aria-label="{{.Name}}" title="{{.Name}}" data-project-color="{{.Key}}">
+            <svg width="16" height="16" aria-hidden="true"><rect width="16" height="16" rx="3" fill="{{.Value}}"/></svg>
+          </button>
+        {{end}}
       </div>
     </div>
-    <form id="project-color-request" method="post" hidden><input type="hidden" name="preset"></form>
-    <form id="archive-request" method="post" hidden>
-      <input type="hidden" name="archived" value="true" disabled>
-      <input type="hidden" name="ticket_key" disabled>
+  </div>
+  <form id="project-color-request" method="post" hidden><input type="hidden" name="preset"></form>
+  <form id="archive-request" method="post" hidden>
+    <input type="hidden" name="archived" value="true" disabled>
+    <input type="hidden" name="ticket_key" disabled>
+  </form>
+  <dialog class="archive-dialog" id="archive-confirmation" aria-labelledby="archive-dialog-title" aria-describedby="archive-dialog-message">
+    <form method="dialog">
+      <h2 id="archive-dialog-title"></h2>
+      <p id="archive-dialog-message"></p>
+      <div class="archive-dialog-actions">
+        <button value="cancel" autofocus>Cancel</button>
+        <button class="confirm-archive" value="archive">Archive</button>
+      </div>
     </form>
-    <dialog class="archive-dialog" id="archive-confirmation" aria-labelledby="archive-dialog-title" aria-describedby="archive-dialog-message">
-      <form method="dialog">
-        <h2 id="archive-dialog-title"></h2>
-        <p id="archive-dialog-message"></p>
-        <div class="archive-dialog-actions">
-          <button value="cancel" autofocus>Cancel</button>
-          <button class="confirm-archive" value="archive">Archive</button>
-        </div>
-      </form>
-    </dialog>
-  {{end}}
+  </dialog>
   <footer class="app-version" aria-label="Backlog server version">v{{.Version}}</footer>
 </body>
 </html>
@@ -138,12 +133,13 @@
 {{define "project-list"}}
   <ul class="project-list">
     {{range .Projects}}
-      <li data-project-card="{{.ID}}"{{if $.CanEdit}} data-archive-menu data-archive-kind="project" data-archive-name="{{.Name}}" data-archive-action="/projects/{{.ID}}/archive" data-color-action="/projects/{{.ID}}/color" data-color-preset="{{.ColorPreset}}"{{end}}>
+      <li data-project-card="{{.ID}}" data-archive-menu data-archive-kind="project" data-archive-name="{{.Name}}" data-archive-action="/projects/{{.ID}}/archive"{{if $.CanSetColor}} data-color-action="/projects/{{.ID}}/color" data-color-preset="{{.ColorPreset}}"{{end}}>
         <div class="project-card">
           <div class="project-name">
             <div class="project-card-title">
-              <h2><a class="project-card-link" href="/projects/{{.ID}}"{{if $.CanEdit}} aria-haspopup="menu"{{end}}>{{template "project-pixel" .}}{{.Name}}</a></h2>
+              <h2><a class="project-card-link" href="/projects/{{.ID}}" aria-haspopup="menu">{{template "project-pixel" .}}{{.Name}}</a></h2>
               {{template "blocked-attention" .Blocked}}
+              <button id="archive-project-{{.ID}}-button" class="archive-button" type="button" aria-label="Archive project {{.Name}}" title="Archive project" data-archive-confirm>{{template "archive-icon"}}</button>
               {{if .Readme}}<a class="project-document-shortcut" href="{{documentPath .ID .Readme}}">{{template "document-icon"}} README</a>{{end}}
               {{if .Specification}}<a class="project-document-shortcut" href="{{documentPath .ID .Specification}}">{{template "document-icon"}} SPEC</a>{{end}}
             </div>

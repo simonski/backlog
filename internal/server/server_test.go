@@ -12,7 +12,7 @@ import (
 	"harness.engineering/internal/storage"
 )
 
-func TestRemoteDashboardIsReadOnly(t *testing.T) {
+func TestDashboardArchiveControlsAndRemoteRestrictions(t *testing.T) {
 	store, err := storage.Open(t.Context(), filepath.Join(t.TempDir(), "telemetry.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -27,21 +27,20 @@ func TestRemoteDashboardIsReadOnly(t *testing.T) {
 	}
 
 	cases := []struct {
-		name   string
-		method string
-		target string
-		peer   string
-		status int
-		edit   bool
+		name    string
+		method  string
+		target  string
+		peer    string
+		status  int
+		archive bool
 	}{
-		{"remote IP", "GET", "http://100.75.0.1:15000/projects/1", "100.75.0.2:43210", http.StatusOK, false},
-		{"tailnet hostname", "GET", "http://macmini.example.ts.net:15000/projects/1", "100.75.0.2:43210", http.StatusOK, false},
+		{"remote IP", "GET", "http://100.75.0.1:15000/projects/1", "100.75.0.2:43210", http.StatusOK, true},
+		{"tailnet hostname", "GET", "http://macmini.example.ts.net:15000/projects/1", "100.75.0.2:43210", http.StatusOK, true},
 		{"local dashboard", "GET", "http://127.0.0.1:15000/projects/1", "127.0.0.1:43210", http.StatusOK, true},
 		{"unexpected hostname", "GET", "http://example.org/projects/1", "127.0.0.1:43210", http.StatusForbidden, false},
 		{"remote report", "POST", "http://100.75.0.1:15000/api/reports", "100.75.0.2:43210", http.StatusForbidden, false},
 		{"remote document upload", "POST", "http://100.75.0.1:15000/api/documents", "100.75.0.2:43210", http.StatusForbidden, false},
-		{"spoofed host", "POST", "http://127.0.0.1:15000/projects/1/archive", "100.75.0.2:43210", http.StatusForbidden, false},
-		{"remote archive column", "POST", "http://100.75.0.1:15000/projects/1/archive/blocked", "100.75.0.2:43210", http.StatusForbidden, false},
+		{"remote archive column", "POST", "http://100.75.0.1:15000/projects/1/archive/blocked", "100.75.0.2:43210", http.StatusSeeOther, false},
 		{"unsupported archive column", "POST", "http://127.0.0.1:15000/projects/1/archive/doing", "127.0.0.1:43210", http.StatusNotFound, false},
 	}
 	handler := Handler(store, "test-build")
@@ -59,7 +58,7 @@ func TestRemoteDashboardIsReadOnly(t *testing.T) {
 			if tc.status == http.StatusOK && !strings.Contains(body, title) {
 				t.Fatal("task missing from dashboard")
 			}
-			if strings.Contains(body, "Archive project") != tc.edit {
+			if strings.Contains(body, "Archive project") != tc.archive {
 				t.Fatal("incorrect archive controls")
 			}
 		})
@@ -99,7 +98,7 @@ func TestShutdownRequiresLocalSameOriginRequest(t *testing.T) {
 	}
 }
 
-func TestTailscaleArchiveAccess(t *testing.T) {
+func TestTailscaleArchiveAndProjectManagementAccess(t *testing.T) {
 	store, err := storage.Open(t.Context(), filepath.Join(t.TempDir(), "telemetry.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -122,10 +121,10 @@ func TestTailscaleArchiveAccess(t *testing.T) {
 		t.Fatal("archive access allowed a non-loopback listener")
 	}
 	handler := HandlerWithArchiveAccess(store, "test-build", access)
-	call := func(method, path string, change func(*http.Request)) *httptest.ResponseRecorder {
+	call := func(method, path string, form url.Values, change func(*http.Request)) *httptest.ResponseRecorder {
 		t.Helper()
 		request := httptest.NewRequest(method, "http://"+host+path,
-			strings.NewReader(url.Values{"ticket_key": {"check"}}.Encode()))
+			strings.NewReader(form.Encode()))
 		request.RemoteAddr = "127.0.0.1:1234"
 		request.Header.Set("X-Forwarded-Host", host)
 		request.Header.Set("X-Forwarded-Proto", "https")
@@ -141,16 +140,24 @@ func TestTailscaleArchiveAccess(t *testing.T) {
 		handler.ServeHTTP(response, request)
 		return response
 	}
-	if response := call(http.MethodGet, "/projects/1", nil); response.Code != http.StatusOK ||
-		!strings.Contains(response.Body.String(), "id=\"archive-menu\"") {
-		t.Fatal("the allowed identity could not see the archive menu")
+	noLogin := func(r *http.Request) { r.Header.Del("Tailscale-User-Login") }
+	if response := call(http.MethodGet, "/projects/1", nil, noLogin); response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), `id="archive-todo-button"`) {
+		t.Fatal("the dashboard viewer could not see the column archive button")
+	}
+	if response := call(http.MethodGet, "/", nil, nil); !strings.Contains(response.Body.String(), `data-color-action="/projects/1/color"`) {
+		t.Fatal("the allowed identity could not see the project color action")
+	}
+	if response := call(http.MethodGet, "/", nil, noLogin); !strings.Contains(response.Body.String(), `id="archive-project-1-button"`) ||
+		strings.Contains(response.Body.String(), `data-color-action=`) {
+		t.Fatal("the dashboard viewer should see project archiving with no color action")
 	}
 	for _, tc := range []struct {
 		name   string
 		change func(*http.Request)
 	}{
 		{"wrong login", func(r *http.Request) { r.Header.Set("Tailscale-User-Login", "other@example.com") }},
-		{"no login", func(r *http.Request) { r.Header.Del("Tailscale-User-Login") }},
+		{"no login", noLogin},
 		{"non-loopback peer", func(r *http.Request) { r.RemoteAddr = "100.75.0.2:1234" }},
 		{"plain HTTP", func(r *http.Request) { r.Header.Set("X-Forwarded-Proto", "http") }},
 		{"wrong port", func(r *http.Request) { r.Host = "mini.example.ts.net:9999" }},
@@ -158,18 +165,31 @@ func TestTailscaleArchiveAccess(t *testing.T) {
 		{"cross-origin", func(r *http.Request) { r.Header.Set("Origin", "https://other.example.com") }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if response := call(http.MethodPost, "/projects/1/archive/ticket", tc.change); response.Code != http.StatusForbidden {
+			if response := call(http.MethodPost, "/projects/1/color", url.Values{"preset": {"rose"}}, tc.change); response.Code != http.StatusForbidden {
 				t.Fatalf("expected 403, got %d", response.Code)
 			}
 		})
 	}
-	if response := call(http.MethodPost, "/api/documents", nil); response.Code != http.StatusForbidden {
+	if response := call(http.MethodPost, "/api/documents", nil, nil); response.Code != http.StatusForbidden {
 		t.Fatalf("document upload got %d", response.Code)
 	}
-	if response := call(http.MethodPost, "/projects/1/archive/ticket", nil); response.Code != http.StatusSeeOther {
+	ticket := url.Values{"ticket_key": {"check"}}
+	if response := call(http.MethodPost, "/projects/1/archive/ticket", ticket, func(r *http.Request) {
+		noLogin(r)
+		r.Header.Set("Origin", "https://other.example.com")
+	}); response.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin archive request got %d", response.Code)
+	}
+	if response := call(http.MethodPost, "/projects/1/archive/ticket", ticket, noLogin); response.Code != http.StatusSeeOther {
 		t.Fatalf("archive request got %d: %s", response.Code, response.Body.String())
 	}
-	if response := call(http.MethodGet, "/projects/1", nil); strings.Contains(response.Body.String(), title) {
+	if response := call(http.MethodGet, "/projects/1", nil, noLogin); strings.Contains(response.Body.String(), title) {
 		t.Fatal("archived ticket still appeared on the board")
+	}
+	if response := call(http.MethodPost, "/projects/1/archive", url.Values{"archived": {"true"}}, noLogin); response.Code != http.StatusSeeOther {
+		t.Fatalf("project archive got %d: %s", response.Code, response.Body.String())
+	}
+	if response := call(http.MethodPost, "/projects/1/archive", url.Values{"archived": {"false"}}, noLogin); response.Code != http.StatusForbidden {
+		t.Fatalf("project restore got %d", response.Code)
 	}
 }

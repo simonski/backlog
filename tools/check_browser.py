@@ -299,11 +299,12 @@ def verify(binary, upgrade_binary):
                 expect(confirmation).to_contain_text("Review one ticket")
                 confirmation.get_by_role("button", name="Archive", exact=True).click()
                 expect(page.get_by_role("heading", name="Blocked 1")).to_be_visible(timeout=3000)
-                page.locator(".task-group.blocked h2").click(button="right")
-                archive_item.click()
+                archive_blocked = page.get_by_role("button", name="Archive all Blocked tickets")
+                archive_blocked.click()
                 confirmation = page.get_by_role("dialog", name="Archive all Blocked tickets?")
                 confirmation.get_by_role("button", name="Archive", exact=True).click()
                 expect(page.get_by_role("heading", name="Blocked 0")).to_be_visible()
+                expect(archive_blocked).to_be_disabled()
                 expect(page.locator(".project-heading-title .blocked-attention")).to_have_count(0)
                 page.locator(".task-group.blocked h2").click(button="right")
                 expect(archive_item).to_have_attribute("aria-disabled", "true")
@@ -311,6 +312,7 @@ def verify(binary, upgrade_binary):
                 expect(archive_menu).not_to_be_visible()
 
                 todo_column = page.locator(".task-group.todo")
+                expect(todo_column.get_by_role("button", name="Archive all To do tickets")).to_be_visible()
                 todo_column.focus()
                 page.keyboard.press("Shift+F10")
                 expect(archive_item).to_be_focused()
@@ -322,11 +324,11 @@ def verify(binary, upgrade_binary):
                 assert {ticket["status"] for ticket in tickets} == {"blocked", "todo"}
                 page.locator(".task-group.doing h2").click(button="right")
                 expect(archive_menu).not_to_be_visible()
+                expect(doing.locator("[data-archive-confirm]")).to_have_count(0)
                 report(binary, url, project, "task", "-id", "old", "-title", "Omit this ticket")
                 report(binary, url, project, "snapshot", data='[{"id":"login"}]')
                 expect(page.get_by_role("heading", name="Rejected 1")).to_be_visible(timeout=3000)
-                page.locator(".task-group.omitted h2").click(button="right")
-                archive_item.click()
+                page.get_by_role("button", name="Archive all Rejected tickets").click()
                 page.get_by_role("dialog", name="Archive all Rejected tickets?").get_by_role(
                     "button", name="Archive", exact=True
                 ).click()
@@ -342,6 +344,12 @@ def verify(binary, upgrade_binary):
                 expect(confirmation).not_to_be_visible()
                 expect(archive_project).to_be_visible()
                 page.get_by_role("link", name="Projects", exact=True).click()
+                archive_card = card.get_by_role("button", name="Archive project test-project")
+                archive_card.click()
+                expect(confirmation).to_be_visible()
+                confirmation.get_by_role("button", name="Cancel").click()
+                expect(page).to_have_url(url + "/")
+                expect(archive_card).to_be_visible()
                 project_link.click(button="right")
                 project_menu = page.get_by_role("menu", name="Project actions")
                 project_menu.get_by_role("menuitem", name="Archive", exact=True).click()
@@ -479,29 +487,47 @@ def verify_tailnet_archive_menu(url):
         response = page.goto(url)
         assert response.ok
         project = page.locator(".project-card-link").first
+        card = page.locator("[data-project-card]").first
+        project_archive = card.locator("[data-archive-confirm]")
+        expect(project_archive).to_be_visible()
         project.click(button="right")
-        menu = page.get_by_role("menu", name="Project actions")
+        menu = page.locator("#archive-menu")
         menu.get_by_role("menuitem", name="Archive", exact=True).click(timeout=3000)
         dialog = page.get_by_role("dialog", name="Archive project?")
         expect(dialog).to_be_visible()
         dialog.get_by_role("button", name="Cancel").click()
         expect(dialog).not_to_be_visible()
         expect(project).to_be_visible()
+        project.click()
+        expect(page.get_by_role("button", name="Archive all Blocked tickets")).to_be_visible()
+        expect(page.get_by_role("button", name="Archive all To do tickets")).to_be_visible()
+        expect(page.get_by_role("button", name="Archive all Done tickets")).to_be_visible()
+        expect(page.get_by_role("button", name="Archive all Rejected tickets")).to_be_visible()
+        page.locator("[data-task-id]").first.click(button="right")
+        menu.get_by_role("menuitem", name="Archive", exact=True).click()
+        ticket_dialog = page.get_by_role("dialog", name="Archive ticket?")
+        expect(ticket_dialog).to_be_visible()
+        ticket_dialog.get_by_role("button", name="Cancel").click()
+        expect(ticket_dialog).not_to_be_visible()
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("binary", type=lambda path: Path(path).resolve())
     parser.add_argument("-upgrade-binary", type=lambda path: Path(path).resolve())
-    parser.add_argument("-tailnet-url", help="verify archive menus on an existing authenticated Tailscale Serve route")
+    parser.add_argument("-tailnet-url", help="verify archive controls on an existing Tailscale dashboard")
+    parser.add_argument("-archive-only", action="store_true", help="only verify the dashboard supplied with -tailnet-url")
     args = parser.parse_args()
+    if args.archive_only and not args.tailnet_url:
+        parser.error("-archive-only requires -tailnet-url")
     started = time.monotonic()
     timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     outcome = "failed"
     try:
         if args.tailnet_url:
             verify_tailnet_archive_menu(args.tailnet_url)
-        verify(args.binary, args.upgrade_binary)
+        if not args.archive_only:
+            verify(args.binary, args.upgrade_binary)
         outcome = "passed"
         print("Browser acceptance checks passed")
     finally:

@@ -134,6 +134,7 @@ button:hover { border-color: var(--teal); }
 .project-card-title h2 { min-width: 0; }
 .project-card-link { text-decoration: none; }
 .project-card-link::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.project-card-title .archive-button { position: relative; z-index: 1; }
 .project-document-shortcut { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: .22rem; padding: .13rem .35rem; border: 1px solid var(--border); border-radius: .35rem; color: var(--teal); font-size: .72rem; text-decoration: none; }
 .project-document-shortcut:hover { border-color: var(--teal); }
 .project-name .path { margin-top: .3rem; }

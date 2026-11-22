@@ -21,7 +21,7 @@ func NewTailscaleArchiveAccess(host, login, listen string) (TailscaleArchiveAcce
 		return TailscaleArchiveAccess{}, nil
 	}
 	if host == "" || strings.TrimSpace(login) == "" {
-		return TailscaleArchiveAccess{}, errors.New("Tailscale archiving requires both -tailscale-archive-host and -tailscale-archive-user")
+		return TailscaleArchiveAccess{}, errors.New("Tailscale project management requires both -tailscale-archive-host and -tailscale-archive-user")
 	}
 	endpoint, err := url.Parse("https://" + host)
 	if err != nil || endpoint.Host != host || !strings.HasSuffix(strings.ToLower(endpoint.Hostname()), ".ts.net") {
@@ -29,7 +29,7 @@ func NewTailscaleArchiveAccess(host, login, listen string) (TailscaleArchiveAcce
 	}
 	listenHost, _, err := net.SplitHostPort(listen)
 	if err != nil || !local.IsLoopback(listenHost) {
-		return TailscaleArchiveAccess{}, errors.New("Tailscale archiving requires a loopback -addr")
+		return TailscaleArchiveAccess{}, errors.New("Tailscale project management requires a loopback -addr")
 	}
 	return TailscaleArchiveAccess{host: strings.ToLower(host), login: strings.TrimSpace(login)}, nil
 }
@@ -55,7 +55,7 @@ func loopbackPeer(r *http.Request) bool {
 	return err == nil && local.IsLoopback(peer)
 }
 
-func (app server) canArchive(r *http.Request) bool {
+func (app server) canManageProjects(r *http.Request) bool {
 	return localRequest(r) || app.archiveAccess.allows(r)
 }
 

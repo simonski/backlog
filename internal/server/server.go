@@ -81,10 +81,10 @@ func HandlerWithShutdown(store *storage.Store, buildID string, access TailscaleA
 	mux.HandleFunc("GET /{$}", app.dashboard)
 	mux.HandleFunc("GET /projects/{id}", app.dashboard)
 	mux.HandleFunc("GET /projects/{id}/docs/{name}", app.document)
-	mux.HandleFunc("POST /projects/{id}/archive", requireAccess(app.canArchive, app.archive))
-	mux.HandleFunc("POST /projects/{id}/archive/ticket", requireAccess(app.canArchive, app.archiveTicket))
-	mux.HandleFunc("POST /projects/{id}/archive/{status}", requireAccess(app.canArchive, app.archiveColumn))
-	mux.HandleFunc("POST /projects/{id}/color", requireAccess(app.canArchive, app.setProjectColor))
+	mux.HandleFunc("POST /projects/{id}/archive", app.archive)
+	mux.HandleFunc("POST /projects/{id}/archive/ticket", app.archiveTicket)
+	mux.HandleFunc("POST /projects/{id}/archive/{status}", app.archiveColumn)
+	mux.HandleFunc("POST /projects/{id}/color", requireAccess(app.canManageProjects, app.setProjectColor))
 	handler := http.NewCrossOriginProtection().Handler(mux)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !dashboardHost(requestHost(r)) {
@@ -255,7 +255,7 @@ type page struct {
 	Groups       []group
 	Documents    []string
 	Activity     activityChart
-	CanEdit      bool
+	CanSetColor  bool
 	ColorPresets []model.ProjectColorPreset
 	BuildID      string
 	Version      string
@@ -264,7 +264,7 @@ type page struct {
 
 func (app server) dashboard(w http.ResponseWriter, r *http.Request) {
 	view := page{
-		Title: "Projects", Section: "projects", CanEdit: app.canArchive(r),
+		Title: "Projects", Section: "projects", CanSetColor: app.canManageProjects(r),
 		BuildID: app.buildID, Version: version.Server, ColorPresets: model.ProjectColorPresets,
 	}
 	var selectedID int64
@@ -362,6 +362,10 @@ func (app server) archive(w http.ResponseWriter, r *http.Request) {
 	value := r.PostForm.Get("archived")
 	if value != "true" && value != "false" {
 		http.Error(w, "expected archived=true or archived=false", http.StatusBadRequest)
+		return
+	}
+	if value == "false" && !app.canManageProjects(r) {
+		http.Error(w, "restoring a project requires an authorized connection", http.StatusForbidden)
 		return
 	}
 	if err := app.store.SetArchived(r.Context(), id, value == "true"); err != nil {

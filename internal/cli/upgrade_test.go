@@ -69,8 +69,26 @@ func TestUpgradeRestoresLaunchAgentAfterFailedVerification(t *testing.T) {
 
 	unhealthy := errors.New("replacement did not become ready")
 	var commands []string
+	loaded := true
+	removing := false
 	run := func(_ context.Context, args ...string) error {
 		commands = append(commands, args[0])
+		switch args[0] {
+		case "bootout":
+			removing = true
+		case "print":
+			if !loaded {
+				return errors.New("service no longer registered")
+			}
+			if removing {
+				loaded, removing = false, false
+			}
+		case "bootstrap":
+			if loaded {
+				t.Fatal("bootstrapped before unloading the old service")
+			}
+			loaded = true
+		}
 		return nil
 	}
 	err = replaceLaunchdProgram(t.Context(), target, plist, original, updated, run, func(ctx context.Context) error {
@@ -84,7 +102,7 @@ func TestUpgradeRestoresLaunchAgentAfterFailedVerification(t *testing.T) {
 		}
 		return unhealthy
 	})
-	if !errors.Is(err, unhealthy) || !slices.Equal(commands, []string{"bootout", "bootstrap", "print", "bootout", "bootstrap"}) {
+	if !errors.Is(err, unhealthy) || !slices.Equal(commands, []string{"bootout", "print", "print", "bootstrap", "print", "bootout", "print", "print", "bootstrap"}) {
 		t.Fatalf("rollback commands %v (%v)", commands, err)
 	}
 	if restored, err := os.ReadFile(plist); err != nil || !bytes.Equal(restored, original) {

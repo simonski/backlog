@@ -201,7 +201,7 @@ func changeLaunchdProgram(ctx context.Context, plist string, original []byte, la
 func replaceLaunchdProgram(ctx context.Context, target, plist string, original, updated []byte,
 	run func(context.Context, ...string) error, verify func(context.Context) error) error {
 	domain := filepath.Dir(target)
-	if err := run(ctx, "bootout", target); err != nil {
+	if err := unloadLaunchdJob(ctx, target, run); err != nil {
 		return err
 	}
 	if err := upgradeLaunchAgentFile(plist, original, updated); err != nil {
@@ -215,7 +215,7 @@ func replaceLaunchdProgram(ctx context.Context, target, plist string, original, 
 	}
 	recover := context.WithoutCancel(ctx)
 	if run(recover, "print", target) == nil {
-		if stopErr := run(recover, "bootout", target); stopErr != nil {
+		if stopErr := unloadLaunchdJob(recover, target, run); stopErr != nil {
 			return errors.Join(err, fmt.Errorf("could not stop replacement launch agent: %w", stopErr))
 		}
 	}
@@ -223,4 +223,25 @@ func replaceLaunchdProgram(ctx context.Context, target, plist string, original, 
 		return errors.Join(err, fmt.Errorf("could not restore original launch agent: %w", rollbackErr))
 	}
 	return errors.Join(err, run(recover, "bootstrap", domain, plist))
+}
+
+func unloadLaunchdJob(ctx context.Context, target string, run func(context.Context, ...string) error) error {
+	if err := run(ctx, "bootout", target); err != nil {
+		return err
+	}
+	wait, cancel := context.WithTimeout(context.WithoutCancel(ctx), 8*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		err := run(wait, "print", target)
+		if wait.Err() == nil && err != nil {
+			return nil
+		}
+		select {
+		case <-wait.Done():
+			return fmt.Errorf("wait for launchd to unload %s: %w", target, wait.Err())
+		case <-ticker.C:
+		}
+	}
 }

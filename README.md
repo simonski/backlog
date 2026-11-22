@@ -41,7 +41,9 @@ Backlog stores `backlog-client.json`, `backlog-server.json`, and `telemetry.db` 
 
 Run `backlog stop` as the server user on the Mac mini to stop the service. Use `backlog restart` to print the launchd restart command. After `brew upgrade simonski/backlog/backlog`, run `backlog upgrade` to update and verify the running service. Logs are in `~/Library/Logs/backlog.log` and `~/Library/Logs/backlog-access.log`. The LaunchAgent runs in the user’s macOS login session.
 
-To enable archive and project-color controls over Tailscale, keep the loopback bind and add `-tailscale-archive-host` and `-tailscale-archive-user` to the service’s `backlog serve` arguments. Use the full service hostname and the permitted Tailscale login. [Backlog specification](SPECIFICATION.md)
+Anyone who can open the dashboard can archive projects and tickets. The archive buttons are on each project card, the project title, and the **Blocked**, **To do**, **Done**, and **Rejected** column headings. Use the right-click menu to archive an individual ticket.
+
+To allow project restoration and color changes over Tailscale, keep the loopback bind and add `-tailscale-archive-host` and `-tailscale-archive-user` to the service’s `backlog serve` arguments. Use the full service hostname and the permitted Tailscale login. [Backlog specification](SPECIFICATION.md)
 
 ### Local foreground or background
 

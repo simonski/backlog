@@ -47,8 +47,8 @@ func (app App) serve(ctx context.Context, args []string, out, diagnostics io.Wri
 	resolveAddress := serverFlags(flags, &address, &path)
 	stop := flags.Bool("stop", false, "stop the local server (compatibility alias for backlog stop)")
 	detach := flags.Bool("d", false, "start in the background")
-	archiveHost := flags.String("tailscale-archive-host", "", "Tailscale Serve HTTPS hostname and optional port for archive actions")
-	archiveUser := flags.String("tailscale-archive-user", "", "Tailscale login authorized to archive through Serve")
+	archiveHost := flags.String("tailscale-archive-host", "", "Tailscale Serve HTTPS hostname and optional port for project management")
+	archiveUser := flags.String("tailscale-archive-user", "", "Tailscale login authorized to restore projects and change project colors")
 	if err := parseFlags(flags, args); err != nil {
 		return err
 	}

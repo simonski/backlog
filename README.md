@@ -1,6 +1,6 @@
 # Backlog
 
-Backlog is a local dashboard for tracking project work reported by an agentic harness.
+Backlog is a live dashboard for tracking project work reported by an agentic harness.
 
 ## Install
 
@@ -8,6 +8,7 @@ Install the current build with Homebrew on macOS.
 
 ```sh
 brew tap simonski/backlog https://github.com/simonski/backlog.git
+brew update
 brew install --HEAD simonski/backlog/backlog
 ```
 
@@ -15,11 +16,17 @@ From a source checkout, run `make install` to install into `~/.local/bin`. See `
 
 ## Setup (client)
 
-Run `backlog setup`, choose **client**, and enter the dashboard URL and an optional monitoring username. For Tailscale, use `https://backlog.<tailnet>.ts.net`. Shell values for `BACKLOG_URL` and `BACKLOG_USERNAME` override the saved settings.
+Replace `<tailnet>` with the part of your tailnet DNS name before `.ts.net`, or use your Backlog server URL.
 
-On macOS, run `backlog menu` and click the Backlog icon to see project names, ticket counts, and activity dots in the native menu. Open **Settings…** in that menu to change the URL or username. The dashboard shows self-reported names while clients are monitoring.
+```sh
+export BACKLOG_URL='https://backlog.<tailnet>.ts.net'
+backlog setup
+```
 
-Use `backlog project ls` for project IDs and `backlog ls -project N` for a project's tickets. Plain `backlog ls` uses the current checkout if it matches a project and shows every project otherwise.
+1. Choose **client**, press Enter to accept `BACKLOG_URL`, and optionally enter a monitoring username.
+2. On macOS, optionally run `backlog menu` to start the menu bar client. **Settings…** edits the saved URL and username. An exported `BACKLOG_URL` takes precedence at startup.
+3. Run `backlog install-skill` wherever your agent harness runs. Reporting requires a local Backlog server on that host.
+4. Run `backlog project ls` to verify that the CLI can reach the server. Then open the value of `BACKLOG_URL` in your browser.
 
 ## Setup (server)
 
@@ -46,6 +53,6 @@ Publish Backlog as `https://backlog.<tailnet>.ts.net` through a Tailscale Servic
    tailscale serve --service=svc:backlog --https=443 http://127.0.0.1:15000
    ```
 
-3. Approve the host under **Services → backlog → Service hosts**, then open the HTTPS URL from a tailnet device.
+3. If approval is pending, approve the host under **Services → backlog → Service hosts**. Open the HTTPS URL from a tailnet device.
 
-To allow archive and project-color controls, run the server on loopback and set `-tailscale-archive-host` to the full service hostname and `-tailscale-archive-user` to the permitted login.
+To allow archive and project-color controls over Tailscale, bind `backlog serve` to `127.0.0.1:15000` with `-addr`, set `-tailscale-archive-host` to the full service hostname, and set `-tailscale-archive-user` to the permitted login.

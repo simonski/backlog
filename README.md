@@ -24,7 +24,7 @@ backlog setup
 ```
 
 1. Choose **client**, press Enter to accept `BACKLOG_URL`, and optionally enter a monitoring username.
-2. On macOS, optionally run `backlog menu` to start the menu bar client. **Settings…** edits the saved URL and username. An exported `BACKLOG_URL` takes precedence at startup.
+2. On macOS, optionally run `backlog menu`. It starts the menu bar client in the background and returns to the prompt. Use **Settings…** to edit the saved URL and username, or **Quit Backlog** to close the client. An exported `BACKLOG_URL` takes precedence at startup.
 3. Run `backlog install-skill` wherever your agent harness runs. Reporting requires a local Backlog server on that host.
 4. Run `backlog project ls` to verify that the CLI can reach the server. Then open the value of `BACKLOG_URL` in your browser.
 

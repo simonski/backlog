@@ -55,7 +55,7 @@ type App struct {
 func writeUsage(w io.Writer) {
 	menu := ""
 	if menubar.Available {
-		menu = "  menu           Run the Backlog client in the macOS menu bar\n"
+		menu = "  menu           Start the macOS menu bar client in the background\n"
 	}
 	fmt.Fprintf(w, usage, menu)
 }

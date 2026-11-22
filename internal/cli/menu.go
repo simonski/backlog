@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"harness.engineering/internal/local"
@@ -15,6 +16,7 @@ import (
 
 func runMenu(ctx context.Context, args []string, diagnostics io.Writer) error {
 	flags := newFlags("menu", diagnostics, " [options]")
+	foreground := flags.Bool("foreground", false, "run in this process for debugging or supervision")
 	var address string
 	resolveAddress := addressFlags(flags, &address, local.DefaultAddress, "local dashboard host:port")
 	if err := parseFlags(flags, args); err != nil {
@@ -26,6 +28,14 @@ func runMenu(ctx context.Context, args []string, diagnostics io.Writer) error {
 	if err := resolveAddress(); err != nil {
 		return err
 	}
+	if hasAddressOverride(flags) {
+		if err := local.ValidateAddress(address); err != nil {
+			return err
+		}
+	}
+	if !*foreground && os.Getenv("XPC_SERVICE_NAME") != menuAgentLabel {
+		return startMenuAgent(ctx, args)
+	}
 	path, err := dashboardURLPath()
 	if err != nil {
 		return err
@@ -36,9 +46,6 @@ func runMenu(ctx context.Context, args []string, diagnostics io.Writer) error {
 	}
 	settings.Username = backlogUsername(settings.Username)
 	if hasAddressOverride(flags) {
-		if err := local.ValidateAddress(address); err != nil {
-			return err
-		}
 		settings.DashboardURL = "http://" + address + "/"
 	} else if settings.DashboardURL, err = dashboardURL("http://" + address + "/"); err != nil {
 		return fmt.Errorf("read BACKLOG_URL (%w)", err)

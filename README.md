@@ -4,12 +4,12 @@ Backlog is a live dashboard for tracking project work reported by an agentic har
 
 ## Install
 
-Install the current build with Homebrew on macOS.
+Install the stable release with Homebrew on macOS.
 
 ```sh
 brew tap simonski/backlog https://github.com/simonski/backlog.git
 brew update
-brew install --HEAD simonski/backlog/backlog
+brew install simonski/backlog/backlog
 ```
 
 From a source checkout, run `make install` to install into `~/.local/bin`. See `backlog -help` for commands and [SPECIFICATION.md](SPECIFICATION.md) for behavior.

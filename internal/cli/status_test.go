@@ -97,7 +97,7 @@ func TestStatusVersionAdvice(t *testing.T) {
 	for _, tc := range []struct {
 		running, want string
 	}{
-		{"0.9.0", "backlog restart"},
+		{"0.9.0", "backlog upgrade"},
 		{"0.11.0", "bundled server release line"},
 		{"0.12.1", ""},
 		{"0.13.0", "Upgrade the Backlog CLI"},

@@ -33,6 +33,7 @@ backlog setup
 Run `backlog setup` and choose **server** to check the local port, server version, and launchd registration. Follow the printed advice.
 
 - On macOS, `backlog setup -start` installs and starts the launchd service. Elsewhere, run `backlog serve`.
+- After installing a newer Backlog binary, run `backlog upgrade` on the macOS server host to update and verify the running launchd service. Use `-p N` if the server listens on a different port.
 - Open [http://127.0.0.1:15000/](http://127.0.0.1:15000/) on the host. Use `backlog status` to check it or `backlog restart` to print the launchd command.
 - Run `backlog install-skill` where the harness reports work. From a project's checkout, run `backlog project init` to register its GitHub repository or a path such as `~/code/example`. Ticket reporting uses the local server.
 

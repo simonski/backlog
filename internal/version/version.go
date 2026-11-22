@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	Client   = "0.13.1"
-	Server   = "0.12.0"
+	Client   = "0.14.0"
+	Server   = "0.14.0"
 	Protocol = 1
 )
 

@@ -31,6 +31,7 @@ Commands:
   status         Check Backlog setup, processes, and server health
   ps             Alias for status
   restart        Print the command to restart or start the launchd service
+  upgrade        Bring the local launchd server up to this build's version
 %s  task           Report a single task update
   snapshot       Report all currently known project tasks as a JSON array
   ls             List projects and their tickets
@@ -76,6 +77,8 @@ func (app App) Run(ctx context.Context, args []string, input io.Reader, out, dia
 		err = showStatus(ctx, args[0], args[1:], out, diagnostics)
 	case "restart":
 		err = showRestart(ctx, args[1:], out, diagnostics)
+	case "upgrade":
+		err = upgradeServer(ctx, args[1:], out, diagnostics)
 	case "menu":
 		err = runMenu(ctx, args[1:], diagnostics)
 	case "task", "snapshot":

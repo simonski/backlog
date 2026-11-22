@@ -22,6 +22,7 @@ class Backlog < Formula
       assert_match(/\A\d+\.\d+\.\d+\z/, versions.fetch("server_version"))
       assert_match "-start", shell_output("#{bin}/backlog setup -help 2>&1")
       assert_match "init", shell_output("#{bin}/backlog project")
+      assert_match "usage", shell_output("#{bin}/backlog upgrade -help 2>&1").downcase
       assert_match "menu", shell_output("#{bin}/backlog -help") if OS.mac?
     else
       versions = JSON.parse(shell_output("#{bin}/backlog version"))

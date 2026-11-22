@@ -98,7 +98,7 @@ func statusAdvice(report statusReport) string {
 		return ""
 	}
 	if version.Warning(report.BundledVersion, running) != "" && version.Older(running, report.BundledVersion) {
-		return "Install the new build at the launchd job's executable path, then run backlog restart for the restart command."
+		return "Run backlog upgrade on the server host to update its macOS launchd service."
 	}
 	if version.Warning(report.ClientVersion, running) == "" {
 		return ""

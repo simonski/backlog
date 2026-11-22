@@ -23,10 +23,19 @@ func ticketIDs(value string) []string {
 }
 
 func listTickets(ctx context.Context, args []string, out, diagnostics io.Writer) error {
-	flags := newFlags("ls", diagnostics, " [-id ID[,ID...]] [options]")
+	flags := newFlags("ls", diagnostics, " [-project N] [-id ID[,ID...]] [options]")
 	asJSON := flags.Bool("json", false, "print indented JSON")
+	var projectID string
+	flags.Func("project", "list tickets for this project ID", func(value string) error {
+		id, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || id <= 0 {
+			return model.Invalid("project ID must be a positive number")
+		}
+		projectID = value
+		return nil
+	})
 	var address string
-	resolveAddress := addressFlags(flags, &address, local.DefaultAddress, "local server host:port")
+	resolveAddress := addressFlags(flags, &address, local.DefaultAddress, "override the dashboard with a local host:port")
 	var ids []string
 	flags.Func("id", "comma-separated ticket IDs (default all tickets)", func(value string) error {
 		ids = ticketIDs(value)
@@ -38,34 +47,56 @@ func listTickets(ctx context.Context, args []string, out, diagnostics io.Writer)
 	if err := resolveAddress(); err != nil {
 		return err
 	}
-	root, err := projectRoot(ctx)
+	query := url.Values{"tickets": {"1"}, "id": ids}
+	if projectID != "" {
+		query.Set("project", projectID)
+	} else {
+		projectHints(ctx, query)
+	}
+	projects, err := fetchProjects(ctx, flags, address, query, diagnostics)
 	if err != nil {
 		return err
 	}
-	query := url.Values{"root": {root}, "id": ids}
-	var tasks []model.Task
-	if err := requestServer(ctx, address, http.MethodGet, "/api/tasks?"+query.Encode(), nil, &tasks, diagnostics); err != nil {
-		return err
-	}
 	if *asJSON {
+		type projectTicket struct {
+			model.Task
+			ProjectID int64  `json:"project_id"`
+			Project   string `json:"project"`
+		}
+		tasks := make([]projectTicket, 0)
+		for _, project := range projects {
+			for _, task := range project.Tickets {
+				tasks = append(tasks, projectTicket{Task: task, ProjectID: project.ID, Project: project.Name})
+			}
+		}
 		return writeJSON(out, tasks)
 	}
-	if len(tasks) == 0 {
-		_, err := fmt.Fprintln(out, "No tickets for this project.")
+	if len(projects) == 0 {
+		_, err := fmt.Fprintln(out, "No projects tracked.")
 		return err
 	}
 	table := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(table, "ID\tSTATUS\tPROGRESS\tTITLE")
-	for _, task := range tasks {
-		status := task.Status
-		if task.Omitted {
-			status = "rejected"
+	for i, project := range projects {
+		if i != 0 {
+			fmt.Fprintln(table)
 		}
-		progress := "-"
-		if value := task.DisplayProgress(); value != nil {
-			progress = strconv.Itoa(*value) + "%"
+		fmt.Fprintf(table, "%s [%d]\n", ticketCell(projectLabel(project)), project.ID)
+		if len(project.Tickets) == 0 {
+			fmt.Fprintln(table, "No tickets.")
+			continue
 		}
-		fmt.Fprintf(table, "%s\t%s\t%s\t%s\n", ticketCell(task.ID), status, progress, ticketCell(task.Title))
+		fmt.Fprintln(table, "ID\tSTATUS\tPROGRESS\tTITLE")
+		for _, task := range project.Tickets {
+			status := task.Status
+			if task.Omitted {
+				status = model.Rejected
+			}
+			progress := "-"
+			if value := task.DisplayProgress(); value != nil {
+				progress = strconv.Itoa(*value) + "%"
+			}
+			fmt.Fprintf(table, "%s\t%s\t%s\t%s\n", ticketCell(task.ID), status, progress, ticketCell(task.Title))
+		}
 	}
 	return table.Flush()
 }

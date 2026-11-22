@@ -70,6 +70,10 @@ func TestStatusDistinguishesBacklogForeignListenerAndClosedPort(t *testing.T) {
 }
 
 func TestStatusTextAndPortOverride(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home)
+	t.Setenv("APPDATA", home)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(w, `{"server_version":%q,"protocol_version":1}`, version.Client)
 	}))

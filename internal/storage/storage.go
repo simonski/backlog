@@ -23,6 +23,16 @@ CREATE TABLE IF NOT EXISTS projects (
 	latest_report INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS project_repositories (
+	project_id INTEGER PRIMARY KEY REFERENCES projects(id),
+	repository TEXT NOT NULL UNIQUE COLLATE NOCASE
+);
+
+CREATE TABLE IF NOT EXISTS project_locations (
+	root TEXT PRIMARY KEY,
+	project_id INTEGER NOT NULL REFERENCES projects(id)
+);
+
 CREATE TABLE IF NOT EXISTS tasks (
 	project_id INTEGER NOT NULL REFERENCES projects(id),
 	id TEXT NOT NULL,
@@ -49,6 +59,14 @@ CREATE TABLE IF NOT EXISTS task_timing (
 	task_id TEXT NOT NULL,
 	active_nanos INTEGER NOT NULL DEFAULT 0,
 	started_at INTEGER,
+	PRIMARY KEY (project_id, task_id),
+	FOREIGN KEY (project_id, task_id) REFERENCES tasks(project_id, id)
+);
+
+CREATE TABLE IF NOT EXISTS task_updates (
+	project_id INTEGER NOT NULL,
+	task_id TEXT NOT NULL,
+	updated_at INTEGER NOT NULL,
 	PRIMARY KEY (project_id, task_id),
 	FOREIGN KEY (project_id, task_id) REFERENCES tasks(project_id, id)
 );
@@ -86,7 +104,8 @@ CREATE TABLE IF NOT EXISTS project_colors (
 `
 
 type Store struct {
-	db *sql.DB
+	db   *sql.DB
+	home string
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
@@ -136,7 +155,21 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Store{db: db}, nil
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO task_updates (project_id, task_id, updated_at)
+		SELECT a.project_id, a.task_id, unixepoch(MAX(a.day), 'utc') * 1000000000
+		FROM daily_task_activity a LEFT JOIN task_updates u ON u.project_id = a.project_id AND u.task_id = a.task_id
+		WHERE u.task_id IS NULL GROUP BY a.project_id, a.task_id
+		ON CONFLICT (project_id, task_id) DO NOTHING
+	`); err != nil {
+		db.Close()
+		return nil, err
+	}
+	home, _ := os.UserHomeDir()
+	if canonical, err := filepath.EvalSymlinks(home); home != "" && err == nil {
+		home = canonical
+	}
+	return &Store{db: db, home: home}, nil
 }
 
 func (store *Store) Close() error { return store.db.Close() }
@@ -161,15 +194,8 @@ func (store *Store) apply(ctx context.Context, root string, tasks []model.TaskUp
 		return model.Result{}, err
 	}
 	defer tx.Rollback()
-	if allowCreate {
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO projects(root) VALUES (?) ON CONFLICT(root) DO NOTHING
-		`, root); err != nil {
-			return model.Result{}, err
-		}
-	}
-	var projectID int64
-	if err := tx.QueryRowContext(ctx, "SELECT id FROM projects WHERE root = ?", root).Scan(&projectID); errors.Is(err, sql.ErrNoRows) {
+	projectID, err := projectForRoot(ctx, tx, root, allowCreate)
+	if errors.Is(err, sql.ErrNoRows) {
 		return model.Result{}, model.Invalid("no tasks found for this project")
 	} else if err != nil {
 		return model.Result{}, err
@@ -179,6 +205,13 @@ func (store *Store) apply(ctx context.Context, root string, tasks []model.TaskUp
 	day := now.Format(time.DateOnly)
 	if snapshot {
 		// Included tasks overwrite their provisional rejection below.
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO task_updates (project_id, task_id, updated_at)
+			SELECT project_id, id, ? FROM tasks WHERE project_id = ? AND status <> 'done' AND omitted = 0
+			ON CONFLICT (project_id, task_id) DO UPDATE SET updated_at = excluded.updated_at
+		`, now.UnixNano(), projectID); err != nil {
+			return model.Result{}, err
+		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO daily_task_activity (day, project_id, task_id, status)
 			SELECT ?, project_id, id, 'rejected' FROM tasks
@@ -195,6 +228,12 @@ func (store *Store) apply(ctx context.Context, root string, tasks []model.TaskUp
 	}
 	for _, task := range tasks {
 		if err := applyTask(ctx, tx, projectID, task, allowCreate); err != nil {
+			return model.Result{}, err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO task_updates (project_id, task_id, updated_at) VALUES (?, ?, ?)
+			ON CONFLICT (project_id, task_id) DO UPDATE SET updated_at = excluded.updated_at
+		`, projectID, task.ID, now.UnixNano()); err != nil {
 			return model.Result{}, err
 		}
 		if task.Status != nil && *task.Status == model.Done {
@@ -272,7 +311,7 @@ func (store *Store) Dashboard(ctx context.Context, selectedID int64) ([]model.Pr
 	}
 	defer tx.Rollback()
 
-	projects, err := listProjects(ctx, tx, 0)
+	projects, err := store.listProjects(ctx, tx, 0)
 	if err != nil || selectedID == 0 {
 		return projects, nil, nil, err
 	}
@@ -289,7 +328,7 @@ func (store *Store) Dashboard(ctx context.Context, selectedID int64) ([]model.Pr
 	return nil, nil, nil, sql.ErrNoRows
 }
 
-func listProjects(ctx context.Context, tx *sql.Tx, promoteUploadsAfter int64) ([]model.Project, error) {
+func (store *Store) listProjects(ctx context.Context, tx *sql.Tx, promoteUploadsAfter int64) ([]model.Project, error) {
 	rows, err := tx.QueryContext(ctx, `
 		SELECT p.id, p.root, p.archived, p.latest_report,
 			COUNT(CASE WHEN t.status = 'todo' AND t.omitted = 0 THEN 1 END),
@@ -303,12 +342,13 @@ func listProjects(ctx context.Context, tx *sql.Tx, promoteUploadsAfter int64) ([
 			COALESCE((SELECT name FROM project_documents WHERE project_id = p.id
 				AND lower(name) IN ('spec', 'spec.md', 'spec.markdown', 'specification', 'specification.md', 'specification.markdown')
 				ORDER BY CASE lower(name) WHEN 'specification.md' THEN 0 WHEN 'spec.md' THEN 1 ELSE 2 END, name LIMIT 1), ''),
-			COALESCE(color.preset, '')
+			COALESCE(color.preset, ''), COALESCE(repo.repository, '')
 		FROM projects p LEFT JOIN tasks t ON t.project_id = p.id AND NOT EXISTS (
 			SELECT 1 FROM archived_tasks ar WHERE ar.project_id = t.project_id AND ar.task_id = t.id
 		)
 		LEFT JOIN project_document_activity d ON d.project_id = p.id
 		LEFT JOIN project_colors color ON color.project_id = p.id
+		LEFT JOIN project_repositories repo ON repo.project_id = p.id
 		GROUP BY p.id
 		ORDER BY CASE WHEN ?1 <> 0 AND d.uploaded_at > ?1 THEN d.uploaded_at ELSE 0 END DESC,
 			(doing_count > 0) DESC, p.latest_report DESC, p.id DESC
@@ -323,9 +363,10 @@ func listProjects(ctx context.Context, tx *sql.Tx, promoteUploadsAfter int64) ([
 		var project model.Project
 		if err := rows.Scan(&project.ID, &project.Root, &project.Archived, &project.LatestReport,
 			&project.Todo, &project.Doing, &project.Blocked, &project.Done, &project.Omitted,
-			&project.Readme, &project.Specification, &project.ColorPreset); err != nil {
+			&project.Readme, &project.Specification, &project.ColorPreset, &project.Repository); err != nil {
 			return nil, err
 		}
+		project.PortableRoot = model.PortablePath(project.Root, store.home)
 		projects = append(projects, project)
 	}
 	return projects, rows.Err()
@@ -333,8 +374,10 @@ func listProjects(ctx context.Context, tx *sql.Tx, promoteUploadsAfter int64) ([
 
 func listTasks(ctx context.Context, tx *sql.Tx, projectID int64, includeArchived bool) ([]model.Task, error) {
 	rows, err := tx.QueryContext(ctx, `
-		SELECT t.id, t.title, t.description, t.status, t.progress, t.blocker, t.omitted, tm.active_nanos, tm.started_at
+		SELECT t.id, t.title, t.description, t.status, t.progress, t.blocker, t.omitted, tm.active_nanos, tm.started_at,
+			COALESCE(u.updated_at, 0)
 		FROM tasks t LEFT JOIN task_timing tm ON tm.project_id = t.project_id AND tm.task_id = t.id
+		LEFT JOIN task_updates u ON u.project_id = t.project_id AND u.task_id = t.id
 		WHERE t.project_id = ? AND (? OR NOT EXISTS (
 			SELECT 1 FROM archived_tasks ar WHERE ar.project_id = t.project_id AND ar.task_id = t.id
 		)) ORDER BY t.title COLLATE NOCASE, t.id
@@ -348,7 +391,7 @@ func listTasks(ctx context.Context, tx *sql.Tx, projectID int64, includeArchived
 	for rows.Next() {
 		var task model.Task
 		if err := rows.Scan(&task.ID, &task.Title, &task.Description, &task.Status, &task.Progress, &task.Blocker,
-			&task.Omitted, &task.ActiveNanos, &task.StartedAt); err != nil {
+			&task.Omitted, &task.ActiveNanos, &task.StartedAt, &task.UpdatedAt); err != nil {
 			return nil, err
 		}
 		tasks = append(tasks, task)
@@ -368,8 +411,7 @@ func (store *Store) ListTasks(ctx context.Context, root string, ids []string) ([
 		return nil, err
 	}
 	defer tx.Rollback()
-	var projectID int64
-	err = tx.QueryRowContext(ctx, "SELECT id FROM projects WHERE root = ?", root).Scan(&projectID)
+	projectID, err := projectForRoot(ctx, tx, root, false)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}

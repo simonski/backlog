@@ -1,13 +1,23 @@
 #import <AppKit/AppKit.h>
-#import <WebKit/WebKit.h>
 #include <pthread.h>
+#include <stdint.h>
+#include <stdlib.h>
 
-@interface BacklogMenu : NSObject <WKNavigationDelegate>
+extern char *backlogMenuSave(uintptr_t handle, char *url, char *username);
+extern void backlogMenuVersion(uintptr_t handle, char *version);
+
+@interface BacklogMenu : NSObject <NSMenuDelegate, NSURLSessionTaskDelegate>
 @property (strong) NSURL *dashboardURL;
+@property (copy) NSString *username;
+@property uintptr_t handle;
 @property (strong) NSStatusItem *statusItem;
-@property (strong) NSWindow *window;
-@property (strong) WKWebView *webView;
-@property (strong) NSTextField *message;
+@property (strong) NSURLSession *session;
+@property (strong) NSURLSessionDataTask *pollTask;
+@property (strong) NSTimer *pollTimer;
+@property (copy) NSArray<NSDictionary *> *projects;
+@property BOOL connected;
+@property BOOL polled;
+@property NSUInteger generation;
 @end
 
 @implementation BacklogMenu
@@ -28,71 +38,182 @@
     [button setAccessibilityLabel:@"Backlog"];
 
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Backlog"];
-    NSMenuItem *open = [menu addItemWithTitle:@"Open Backlog" action:@selector(openBacklog:) keyEquivalent:@""];
-    open.target = self;
-    NSMenuItem *quick = [menu addItemWithTitle:@"Quick Backlog" action:@selector(quickBacklog:) keyEquivalent:@""];
-    quick.target = self;
+    menu.delegate = self;
+    menu.autoenablesItems = NO;
     self.statusItem.menu = menu;
+    NSURLSessionConfiguration *config = NSURLSessionConfiguration.ephemeralSessionConfiguration;
+    config.timeoutIntervalForRequest = 4;
+    config.timeoutIntervalForResource = 5;
+    self.session = [NSURLSession sessionWithConfiguration:config delegate:self delegateQueue:nil];
+    __weak BacklogMenu *weakSelf = self;
+    self.pollTimer = [NSTimer timerWithTimeInterval:10 repeats:YES block:^(NSTimer *timer) { [weakSelf poll]; }];
+    [NSRunLoop.mainRunLoop addTimer:self.pollTimer forMode:NSRunLoopCommonModes];
     return YES;
 }
 
-- (void)openBacklog:(id)sender {
-    if (![NSWorkspace.sharedWorkspace openURL:self.dashboardURL]) {
-        NSAlert *alert = [[NSAlert alloc] init];
-        alert.messageText = @"Could not open Backlog in the default browser.";
-        alert.informativeText = self.dashboardURL.absoluteString;
-        [alert runModal];
+- (void)poll {
+    if (self.pollTask != nil || self.dashboardURL == nil) return;
+    NSURL *endpoint = [[self.dashboardURL URLByAppendingPathComponent:@"api"] URLByAppendingPathComponent:@"client"];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:endpoint];
+    request.HTTPMethod = @"POST";
+    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    request.HTTPBody = [NSJSONSerialization dataWithJSONObject:@{ @"username": self.username ?: @"" } options:0 error:nil];
+    NSUInteger generation = self.generation;
+    __weak BacklogMenu *weakSelf = self;
+    self.pollTask = [self.session dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        NSDictionary *result = nil;
+        if (error == nil && [response isKindOfClass:NSHTTPURLResponse.class] && ((NSHTTPURLResponse *)response).statusCode == 200 && data != nil) {
+            id decoded = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+            if ([decoded isKindOfClass:NSDictionary.class]) result = decoded;
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            BacklogMenu *menu = weakSelf;
+            if (menu == nil || menu.generation != generation) return;
+            menu.pollTask = nil;
+            menu.polled = YES;
+            NSString *serverVersion = [result[@"server_version"] isKindOfClass:NSString.class] ? result[@"server_version"] : @"";
+            NSArray *projects = [result[@"projects"] isKindOfClass:NSArray.class] ? result[@"projects"] : nil;
+            menu.connected = projects != nil;
+            if (menu.connected) menu.projects = projects;
+            backlogMenuVersion(menu.handle, (char *)serverVersion.UTF8String);
+        });
+    }];
+    [self.pollTask resume];
+}
+
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task
+    willPerformHTTPRedirection:(NSHTTPURLResponse *)response newRequest:(NSURLRequest *)request
+    completionHandler:(void (^)(NSURLRequest *))complete {
+    complete(nil);
+}
+
+- (NSMenuItem *)add:(NSString *)title action:(SEL)action toMenu:(NSMenu *)menu {
+    NSMenuItem *item = [menu addItemWithTitle:title action:action keyEquivalent:@""];
+    item.target = self;
+    return item;
+}
+
+- (NSInteger)countForKey:(NSString *)key inProject:(NSDictionary *)project {
+    id value = project[key];
+    return [value isKindOfClass:NSNumber.class] ? [value integerValue] : 0;
+}
+
+- (NSMenuItem *)projectItem:(NSDictionary *)project {
+    NSString *name = project[@"name"];
+    NSInteger todo = [self countForKey:@"todo" inProject:project];
+    NSInteger doing = [self countForKey:@"doing" inProject:project];
+    NSInteger blocked = [self countForKey:@"blocked" inProject:project];
+    NSInteger done = [self countForKey:@"done" inProject:project];
+    NSInteger rejected = [self countForKey:@"rejected" inProject:project];
+    NSString *counts = [NSString stringWithFormat:@"To do %ld · Doing %ld · Blocked %ld · Done %ld",
+        (long)todo, (long)doing, (long)blocked, (long)done];
+    if (rejected > 0) counts = [counts stringByAppendingFormat:@" · Rejected %ld", (long)rejected];
+
+    NSColor *color = NSColor.systemGrayColor;
+    NSString *status = self.connected ? @"Inactive" : @"Disconnected";
+    if (self.connected && blocked > 0) {
+        color = NSColor.systemRedColor;
+        status = @"Needs attention";
+    } else if (self.connected && doing > 0) {
+        color = NSColor.systemGreenColor;
+        status = @"Active";
+    }
+    NSImage *dot = [NSImage imageWithSize:NSMakeSize(10, 10) flipped:NO drawingHandler:^BOOL(NSRect frame) {
+        [color setFill];
+        [[NSBezierPath bezierPathWithOvalInRect:NSInsetRect(frame, 1, 1)] fill];
+        return YES;
+    }];
+    NSImageView *indicator = [NSImageView imageViewWithImage:dot];
+    [indicator setAccessibilityElement:NO];
+
+    NSTextField *projectName = [NSTextField labelWithString:name];
+    projectName.font = [NSFont systemFontOfSize:13 weight:NSFontWeightSemibold];
+    projectName.lineBreakMode = NSLineBreakByTruncatingTail;
+    NSTextField *summary = [NSTextField labelWithString:counts];
+    summary.font = [NSFont monospacedDigitSystemFontOfSize:12 weight:NSFontWeightRegular];
+    summary.textColor = NSColor.secondaryLabelColor;
+    CGFloat nameWidth = MIN(240, ceil(projectName.intrinsicContentSize.width));
+    CGFloat summaryWidth = ceil(summary.intrinsicContentSize.width);
+    NSView *row = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 58 + nameWidth + summaryWidth, 25)];
+    indicator.frame = NSMakeRect(14, 8, 10, 10);
+    projectName.frame = NSMakeRect(32, 4, nameWidth, 17);
+    summary.frame = NSMakeRect(42 + nameWidth, 4, summaryWidth, 17);
+    for (NSView *view in @[indicator, projectName, summary]) [row addSubview:view];
+    NSString *description = [NSString stringWithFormat:@"%@, %@, %@", name, status, counts];
+    [row setAccessibilityElement:YES];
+    [row setAccessibilityRole:NSAccessibilityStaticTextRole];
+    [row setAccessibilityLabel:description];
+    row.toolTip = description;
+    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:description action:NULL keyEquivalent:@""];
+    item.view = row;
+    return item;
+}
+
+- (void)menuNeedsUpdate:(NSMenu *)menu {
+    [menu removeAllItems];
+    if (!self.connected || self.projects.count == 0) {
+        NSString *message = self.dashboardURL == nil ? @"Set a Backlog URL" :
+            (self.connected ? @"No projects" : (self.polled ? @"Disconnected" : @"Connecting…"));
+        [self add:message action:NULL toMenu:menu].enabled = NO;
+    }
+    for (id value in self.projects) {
+        if (![value isKindOfClass:NSDictionary.class]) continue;
+        NSDictionary *project = value;
+        if (![project[@"name"] isKindOfClass:NSString.class]) continue;
+        [menu addItem:[self projectItem:project]];
+    }
+    [menu addItem:NSMenuItem.separatorItem];
+    [self add:@"Settings…" action:@selector(showSettings:) toMenu:menu];
+    [self add:@"Quit Backlog" action:@selector(quit:) toMenu:menu];
+}
+
+- (void)showSettings:(id)sender {
+    NSAlert *alert = [[NSAlert alloc] init];
+    alert.messageText = @"Backlog Settings";
+    [alert addButtonWithTitle:@"Save"];
+    [alert addButtonWithTitle:@"Cancel"];
+    NSView *fields = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 350, 105)];
+    NSTextField *urlLabel = [NSTextField labelWithString:@"Backlog URL"];
+    urlLabel.frame = NSMakeRect(0, 84, 350, 18);
+    NSTextField *url = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 60, 350, 24)];
+    url.placeholderString = @"https://backlog.<tailnet>.ts.net";
+    url.stringValue = self.dashboardURL.absoluteString ?: @"";
+    [url setAccessibilityLabel:urlLabel.stringValue];
+    NSTextField *nameLabel = [NSTextField labelWithString:@"Username (optional)"];
+    nameLabel.frame = NSMakeRect(0, 31, 350, 18);
+    NSTextField *name = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 6, 350, 24)];
+    name.stringValue = self.username ?: @"";
+    [name setAccessibilityLabel:nameLabel.stringValue];
+    url.nextKeyView = name;
+    for (NSView *field in @[urlLabel, url, nameLabel, name]) [fields addSubview:field];
+    alert.accessoryView = fields;
+    alert.window.initialFirstResponder = url;
+    [self activate];
+    while ([alert runModal] == NSAlertFirstButtonReturn) {
+        NSCharacterSet *space = NSCharacterSet.whitespaceAndNewlineCharacterSet;
+        NSString *address = [url.stringValue stringByTrimmingCharactersInSet:space];
+        NSString *username = [name.stringValue stringByTrimmingCharactersInSet:space];
+        NSURL *nextURL = [NSURL URLWithString:address];
+        char *error = nextURL == nil ? NULL : backlogMenuSave(self.handle, (char *)address.UTF8String, (char *)username.UTF8String);
+        if (nextURL == nil || error != NULL) {
+            alert.informativeText = error == NULL ? @"Enter an HTTP or HTTPS dashboard URL." : [NSString stringWithUTF8String:error];
+            free(error);
+            continue;
+        }
+        if (![nextURL isEqual:self.dashboardURL]) self.projects = nil;
+        self.dashboardURL = nextURL;
+        self.username = username;
+        self.generation++;
+        [self.pollTask cancel];
+        self.pollTask = nil;
+        self.polled = NO;
+        self.connected = NO;
+        [self poll];
+        return;
     }
 }
 
-- (void)createWindow {
-    NSRect frame = NSMakeRect(0, 0, 460, 620);
-    self.window = [[NSWindow alloc] initWithContentRect:frame
-                                              styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable
-                                                backing:NSBackingStoreBuffered
-                                                  defer:NO];
-    self.window.title = @"Quick Backlog";
-    self.window.releasedWhenClosed = NO;
-    self.window.contentMinSize = NSMakeSize(360, 300);
-    NSScreen *screen = self.statusItem.button.window.screen ?: NSScreen.mainScreen;
-    if (screen != nil) {
-        NSRect bounds = screen.visibleFrame;
-        [self.window setFrameTopLeftPoint:NSMakePoint(NSMaxX(bounds) - NSWidth(frame) - 12, NSMaxY(bounds) - 8)];
-    }
-
-    WKWebViewConfiguration *configuration = [[WKWebViewConfiguration alloc] init];
-    configuration.websiteDataStore = WKWebsiteDataStore.nonPersistentDataStore;
-    self.webView = [[WKWebView alloc] initWithFrame:frame configuration:configuration];
-    self.webView.navigationDelegate = self;
-    self.webView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-    NSView *content = [[NSView alloc] initWithFrame:frame];
-    self.window.contentView = content;
-    [content addSubview:self.webView];
-
-    self.message = [NSTextField wrappingLabelWithString:@"Loading Backlog…"];
-    self.message.alignment = NSTextAlignmentCenter;
-    self.message.translatesAutoresizingMaskIntoConstraints = NO;
-    [content addSubview:self.message];
-    [NSLayoutConstraint activateConstraints:@[
-        [self.message.centerXAnchor constraintEqualToAnchor:content.centerXAnchor],
-        [self.message.centerYAnchor constraintEqualToAnchor:content.centerYAnchor],
-        [self.message.widthAnchor constraintLessThanOrEqualToAnchor:content.widthAnchor multiplier:0.8],
-    ]];
-}
-
-- (void)quickBacklog:(id)sender {
-    if (self.window == nil) {
-        [self createWindow];
-    }
-    if (!self.message.hidden && !self.webView.loading) {
-        self.message.stringValue = @"Loading Backlog…";
-        self.webView.hidden = YES;
-        NSURLRequest *request = [NSURLRequest requestWithURL:self.dashboardURL
-                                                cachePolicy:NSURLRequestReloadIgnoringLocalCacheData
-                                            timeoutInterval:10];
-        [self.webView loadRequest:request];
-    }
-    [self.window makeKeyAndOrderFront:nil];
+- (void)activate {
     if (@available(macOS 14.0, *)) {
         [NSApp activate];
     } else {
@@ -100,44 +221,20 @@
     }
 }
 
-- (void)webView:(WKWebView *)webView
-decidePolicyForNavigationAction:(WKNavigationAction *)action
-decisionHandler:(void (^)(WKNavigationActionPolicy))decide {
-    NSURL *url = action.request.URL;
-    BOOL local = [url.scheme isEqualToString:self.dashboardURL.scheme] &&
-                 [url.host isEqualToString:self.dashboardURL.host] &&
-                 [url.port isEqual:self.dashboardURL.port];
-    decide(local ? WKNavigationActionPolicyAllow : WKNavigationActionPolicyCancel);
+- (void)quit:(id)sender {
+    [NSApp stop:nil];
 }
 
-- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
-    webView.hidden = NO;
-    self.message.hidden = YES;
-}
-
-- (void)showUnavailableMessage {
-    self.webView.hidden = YES;
-    self.message.stringValue = @"Backlog is unavailable. Choose Quick Backlog again to retry.";
-    self.message.hidden = NO;
-}
-
-- (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error {
-    if (error.code != NSURLErrorCancelled) {
-        [self showUnavailableMessage];
-    }
-}
-
-- (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error {
-    [self webView:webView didFailProvisionalNavigation:navigation withError:error];
-}
-
-- (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView {
-    [self showUnavailableMessage];
+- (void)close {
+    self.generation++;
+    [self.pollTimer invalidate];
+    [self.session invalidateAndCancel];
+    [NSStatusBar.systemStatusBar removeStatusItem:self.statusItem];
 }
 
 @end
 
-int backlog_menu_run(const char *url) {
+int backlog_menu_run(const char *url, const char *username, int showSettings, uintptr_t handle) {
     if (!pthread_main_np()) {
         return 1;
     }
@@ -147,19 +244,26 @@ int backlog_menu_run(const char *url) {
             return 1;
         }
         BacklogMenu *menu = [[BacklogMenu alloc] init];
-        menu.dashboardURL = [NSURL URLWithString:[NSString stringWithUTF8String:url]];
-        if (menu.dashboardURL == nil || ![menu install]) {
+        NSURL *initial = [NSURL URLWithString:[NSString stringWithUTF8String:url]];
+        if (([initial.scheme isEqualToString:@"http"] || [initial.scheme isEqualToString:@"https"]) && initial.host.length != 0) {
+            menu.dashboardURL = initial;
+        }
+        menu.username = [NSString stringWithUTF8String:username];
+        menu.handle = handle;
+        if (![menu install]) {
             return 1;
         }
+        [menu poll];
+        if (showSettings) dispatch_async(dispatch_get_main_queue(), ^{ [menu showSettings:nil]; });
         [app run];
-        [NSStatusBar.systemStatusBar removeStatusItem:menu.statusItem];
-        [menu.window close];
+        [menu close];
         return 0;
     }
 }
 
 void backlog_menu_stop(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
+        if (NSApp.modalWindow != nil) [NSApp abortModal];
         [NSApp stop:nil];
         // Wake the event loop so it can observe the stop request.
         NSEvent *event = [NSEvent otherEventWithType:NSEventTypeApplicationDefined

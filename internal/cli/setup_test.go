@@ -4,47 +4,69 @@ import (
 	"bytes"
 	"encoding/xml"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
+
+	"harness.engineering/internal/version"
 )
 
-func TestSetupInstallsSkillOnlyAfterConfirmation(t *testing.T) {
-	directory := t.TempDir()
-	path := filepath.Join(directory, "backlog", "SKILL.md")
-	app := App{ReportingSkill: []byte("# Reporting skill\n")}
-	args := []string{"setup", "-dir", directory}
-
-	declineService := ""
-	if runtime.GOOS == "darwin" {
-		declineService = "no\n"
+func TestSetupClientPersistsOnlyTheDashboardURL(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home)
+	t.Setenv("APPDATA", home)
+	t.Setenv("BACKLOG_URL", "")
+	const dashboard = "https://backlog.example.ts.net/"
+	var out, diagnostics bytes.Buffer
+	answers := "client\nfile:///etc/hosts\n" + dashboard + "\n\n"
+	code := (App{ReportingSkill: []byte("embedded skill")}).Run(t.Context(), []string{"setup"}, strings.NewReader(answers), &out, &diagnostics)
+	if code != 0 || !strings.HasPrefix(out.String(), "Set up Backlog as a client or server?") ||
+		!strings.Contains(out.String(), "Saved BACKLOG_URL="+dashboard) || diagnostics.Len() != 0 {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, &out, &diagnostics)
 	}
-	for _, tc := range []struct {
-		answers string
-		code    int
-		want    string
-	}{
-		{declineService, 1, ""},
-		{declineService + "no\n", 0, ""},
-		{declineService + "maybe\n\n", 0, "Installed reporting skill"},
-		{declineService + "yes\n", 0, "Reporting skill already installed"},
-	} {
-		var out, diagnostics bytes.Buffer
-		code := app.Run(t.Context(), args, strings.NewReader(tc.answers), &out, &diagnostics)
-		if code != tc.code || !strings.Contains(out.String(), tc.want) {
-			t.Fatalf("answers %q: exit %d, stdout %q, stderr %q", tc.answers, code, &out, &diagnostics)
+	if got, err := dashboardURL("fallback"); err != nil || got != dashboard {
+		t.Fatalf("saved URL = %q (%v)", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".agents", "skills")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("client setup touched the skills directory: %v", err)
+	}
+	t.Setenv("BACKLOG_URL", "https://override.example.ts.net/")
+	if got, err := dashboardURL("fallback"); err != nil || got != "https://override.example.ts.net/" {
+		t.Fatalf("environment override = %q (%v)", got, err)
+	}
+}
+
+func TestSetupServerReviewsWithoutInstalling(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home)
+	t.Setenv("APPDATA", home)
+	service := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/version" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
-		got, err := os.ReadFile(path)
-		if tc.want == "" {
-			if !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("skill should be absent, read returned %v", err)
-			}
-		} else if err != nil || !bytes.Equal(got, app.ReportingSkill) {
-			t.Fatalf("skill contents %q: %v", got, err)
-		}
+		fmt.Fprintf(w, `{"server_version":%q,"protocol_version":1}`, version.Client)
+	}))
+	defer service.Close()
+	var out, diagnostics bytes.Buffer
+	args := []string{"setup", "-addr", strings.TrimPrefix(service.URL, "http://")}
+	code := (App{}).Run(t.Context(), args, strings.NewReader("server\n"), &out, &diagnostics)
+	if code != 0 || !strings.Contains(out.String(), "Backlog server:  running") ||
+		!strings.Contains(out.String(), "Advice:") || diagnostics.Len() != 0 {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, &out, &diagnostics)
+	}
+	path, err := dashboardURLPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("server review saved client settings: %v", err)
 	}
 }
 

@@ -20,7 +20,7 @@ func TestRestartCommand(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "Simon's Home")
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	if command, err := restartCommand(nil, domain); err != nil || !strings.HasSuffix(command, " setup") {
+	if command, err := restartCommand(nil, domain); err != nil || !strings.HasSuffix(command, " setup -start") {
 		t.Fatalf("missing plist: %q (%v)", command, err)
 	}
 	path := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")

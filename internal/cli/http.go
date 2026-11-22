@@ -75,9 +75,16 @@ func readServerVersion(ctx context.Context, client *http.Client, base string) (w
 }
 
 func request(ctx context.Context, client *http.Client, method, url string, payload []byte, target any, maxResponseBytes int64) error {
+	return requestWithHeaders(ctx, client, method, url, payload, target, maxResponseBytes, nil)
+}
+
+func requestWithHeaders(ctx context.Context, client *http.Client, method, url string, payload []byte, target any, maxResponseBytes int64, headers http.Header) error {
 	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(payload))
 	if err != nil {
 		return err
+	}
+	if headers != nil {
+		req.Header = headers.Clone()
 	}
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")

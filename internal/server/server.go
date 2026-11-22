@@ -39,6 +39,7 @@ type server struct {
 	store         *storage.Store
 	buildID       string
 	archiveAccess TailscaleArchiveAccess
+	presence      *monitorPresence
 }
 
 func Handler(store *storage.Store, buildID string) http.Handler {
@@ -50,7 +51,7 @@ func HandlerWithArchiveAccess(store *storage.Store, buildID string, access Tails
 }
 
 func HandlerWithShutdown(store *storage.Store, buildID string, access TailscaleArchiveAccess, shutdown func()) http.Handler {
-	app := server{store: store, buildID: buildID, archiveAccess: access}
+	app := server{store: store, buildID: buildID, archiveAccess: access, presence: &monitorPresence{}}
 	assets, err := fs.Sub(files, "web/assets")
 	if err != nil {
 		panic(err)
@@ -70,6 +71,9 @@ func HandlerWithShutdown(store *storage.Store, buildID string, access TailscaleA
 		}))
 	}
 	mux.HandleFunc("POST /api/reports", requireAccess(localRequest, app.report))
+	mux.HandleFunc("GET /api/projects", app.listProjects)
+	mux.HandleFunc("POST /api/projects", requireAccess(localRequest, app.initProject))
+	mux.HandleFunc("POST /api/client", app.monitorClient)
 	mux.HandleFunc("GET /api/tasks", app.listTasks)
 	mux.HandleFunc("PATCH /api/tasks", requireAccess(localRequest, app.updateTasks))
 	mux.HandleFunc("POST /api/documents", requireAccess(localRequest, app.saveDocument))
@@ -133,6 +137,39 @@ func (app server) listTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	tasks, err := app.store.ListTasks(r.Context(), query.Get("root"), query["id"])
 	writeAPIResponse(w, tasks, err, "list tasks")
+}
+
+func (app server) listProjects(w http.ResponseWriter, r *http.Request) {
+	query, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		writeAPIResponse(w, nil, model.Invalid("invalid project query"), "list projects")
+		return
+	}
+	selection := model.ProjectContext{
+		Directory: query.Get("directory"), GitRoot: query.Get("git_root"),
+		CommonRoot: query.Get("common_root"), Repository: query.Get("repository"),
+	}
+	if value := query.Get("project"); value != "" {
+		selection.ID, err = strconv.ParseInt(value, 10, 64)
+		if err != nil || selection.ID <= 0 {
+			writeAPIResponse(w, nil, model.Invalid("project ID must be a positive number"), "list projects")
+			return
+		}
+	}
+	projects, err := app.store.ListProjects(r.Context(), selection, query.Get("tickets") == "1", localRequest(r), query["id"])
+	if name := strings.TrimSpace(r.Header.Get(wire.MonitorUsernameHeader)); err == nil && name != "" && model.ValidMonitorName(name) {
+		app.presence.heartbeat(name, time.Now())
+	}
+	writeAPIResponse(w, projects, err, "list projects")
+}
+
+func (app server) initProject(w http.ResponseWriter, r *http.Request) {
+	var identity model.ProjectIdentity
+	if !readJSONRequest(w, r, &identity) {
+		return
+	}
+	project, err := app.store.InitProject(r.Context(), identity)
+	writeAPIResponse(w, project, err, "initialize project")
 }
 
 func (app server) updateTasks(w http.ResponseWriter, r *http.Request) {
@@ -208,6 +245,7 @@ type page struct {
 	ColorPresets []model.ProjectColorPreset
 	BuildID      string
 	Version      string
+	Monitors     []string
 }
 
 func (app server) dashboard(w http.ResponseWriter, r *http.Request) {
@@ -262,6 +300,7 @@ func (app server) dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	if view.Section == "projects" {
 		view.Activity = makeActivityChart(today, selectedRange, oldest, view.Projects, activity)
+		view.Monitors = app.presence.active(now)
 	}
 
 	var output bytes.Buffer

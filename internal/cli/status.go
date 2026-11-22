@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"strconv"
 	"strings"
 	"syscall"
@@ -45,14 +44,31 @@ func showStatus(ctx context.Context, command string, args []string, out, diagnos
 	if err := local.ValidateAddress(address); err != nil {
 		return err
 	}
+	url, err := dashboardURL("http://" + address)
+	if err != nil {
+		return fmt.Errorf("read BACKLOG_URL (%w)", err)
+	}
+	report := inspectStatus(ctx, address, url, diagnostics)
+	report.Advice = statusAdvice(report)
+	if *asJSON {
+		err = writeJSON(out, report)
+	} else {
+		err = writeStatus(out, address, report)
+	}
+	if err != nil {
+		return err
+	}
+	if report.ServerVersion == "" {
+		return fmt.Errorf("server version unavailable at %s", report.LocalURL)
+	}
+	return nil
+}
 
+func inspectStatus(ctx context.Context, address, dashboard string, diagnostics io.Writer) statusReport {
 	report := statusReport{
 		LocalURL: "http://" + address, ServePIDs: []int{},
+		BacklogURL:    dashboard,
 		ClientVersion: version.Client, BundledVersion: version.Server,
-	}
-	report.BacklogURL = strings.TrimSpace(os.Getenv("BACKLOG_URL"))
-	if report.BacklogURL == "" {
-		report.BacklogURL = report.LocalURL
 	}
 
 	processCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -70,20 +86,7 @@ func showStatus(ctx context.Context, command string, args []string, out, diagnos
 	report.Background = backgroundServiceStatus(backgroundCtx)
 	cancel()
 	probeServer(ctx, address, &report, diagnostics)
-	report.Advice = statusAdvice(report)
-
-	if *asJSON {
-		err = writeJSON(out, report)
-	} else {
-		err = writeStatus(out, address, report)
-	}
-	if err != nil {
-		return err
-	}
-	if report.ServerVersion == "" {
-		return fmt.Errorf("server version unavailable at %s", report.LocalURL)
-	}
-	return nil
+	return report
 }
 
 func statusAdvice(report statusReport) string {

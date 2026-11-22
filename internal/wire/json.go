@@ -7,6 +7,7 @@ import (
 )
 
 const MaxReportBytes = 1 << 20
+const MonitorUsernameHeader = "Backlog-Username"
 
 func ReadJSON(reader io.Reader, target any) error {
 	decoder := json.NewDecoder(reader)
@@ -28,6 +29,10 @@ type ServerVersion struct {
 
 type StopResult struct {
 	PID int `json:"pid"`
+}
+
+type ClientHeartbeat struct {
+	Username string `json:"username"`
 }
 
 type Failure struct {

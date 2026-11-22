@@ -17,13 +17,12 @@ func (store *Store) SaveDocument(ctx context.Context, document model.DocumentUpd
 		return 0, err
 	}
 	defer tx.Rollback()
-	var projectID int64
+	projectID, err := projectForRoot(ctx, tx, document.Root, true)
+	if err != nil {
+		return 0, err
+	}
 	uploadedAt := time.Now().UnixNano()
-	if err := tx.QueryRowContext(ctx, `
-		INSERT INTO projects (root, latest_report) VALUES (?, ?)
-		ON CONFLICT (root) DO UPDATE SET latest_report = excluded.latest_report
-		RETURNING id
-	`, document.Root, uploadedAt).Scan(&projectID); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE projects SET latest_report = ? WHERE id = ?", uploadedAt, projectID); err != nil {
 		return 0, err
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -79,7 +78,8 @@ func (store *Store) ClearDocuments(ctx context.Context, root string) (model.Docu
 		return receipt, err
 	}
 	defer tx.Rollback()
-	if err := tx.QueryRowContext(ctx, "SELECT id FROM projects WHERE root = ?", root).Scan(&receipt.ProjectID); err == sql.ErrNoRows {
+	receipt.ProjectID, err = projectForRoot(ctx, tx, root, false)
+	if err == sql.ErrNoRows {
 		return receipt, model.Invalid("no project found for this directory")
 	} else if err != nil {
 		return receipt, err

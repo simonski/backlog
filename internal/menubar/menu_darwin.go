@@ -2,10 +2,11 @@ package menubar
 
 /*
 #cgo CFLAGS: -fobjc-arc
-#cgo LDFLAGS: -framework AppKit -framework WebKit
+#cgo LDFLAGS: -framework AppKit
 #include <stdlib.h>
+#include <stdint.h>
 
-int backlog_menu_run(const char *url);
+int backlog_menu_run(const char *url, const char *username, int showSettings, uintptr_t handle);
 void backlog_menu_stop(void);
 */
 import "C"
@@ -15,6 +16,7 @@ import (
 	"errors"
 	"os"
 	"runtime"
+	"runtime/cgo"
 	"unsafe"
 )
 
@@ -27,12 +29,40 @@ func init() {
 	}
 }
 
-func Run(ctx context.Context, dashboardURL string) error {
+type menuCallbacks struct {
+	save           func(Settings) error
+	versionChanged func(string)
+}
+
+//export backlogMenuSave
+func backlogMenuSave(handle C.uintptr_t, url, username *C.char) *C.char {
+	callbacks := cgo.Handle(handle).Value().(menuCallbacks)
+	if err := callbacks.save(Settings{DashboardURL: C.GoString(url), Username: C.GoString(username)}); err != nil {
+		return C.CString(err.Error())
+	}
+	return nil
+}
+
+//export backlogMenuVersion
+func backlogMenuVersion(handle C.uintptr_t, version *C.char) {
+	callbacks := cgo.Handle(handle).Value().(menuCallbacks)
+	callbacks.versionChanged(C.GoString(version))
+}
+
+func Run(ctx context.Context, settings Settings, showSettings bool, save func(Settings) error, versionChanged func(string)) error {
 	if ctx.Err() != nil {
 		return nil
 	}
-	address := C.CString(dashboardURL)
+	handle := cgo.NewHandle(menuCallbacks{save: save, versionChanged: versionChanged})
+	defer handle.Delete()
+	address := C.CString(settings.DashboardURL)
 	defer C.free(unsafe.Pointer(address))
+	username := C.CString(settings.Username)
+	defer C.free(unsafe.Pointer(username))
+	var prompt C.int
+	if showSettings {
+		prompt = 1
+	}
 	stopped := make(chan struct{})
 	defer close(stopped)
 	go func() {
@@ -42,7 +72,7 @@ func Run(ctx context.Context, dashboardURL string) error {
 		case <-stopped:
 		}
 	}()
-	if C.backlog_menu_run(address) != 0 {
+	if C.backlog_menu_run(address, username, prompt, C.uintptr_t(handle)) != 0 {
 		return errors.New("could not start the menu bar item in the macOS desktop session")
 	}
 	return nil

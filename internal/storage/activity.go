@@ -17,7 +17,7 @@ func (store *Store) Homepage(ctx context.Context, first, last string, daysPerCol
 		return nil, nil, "", err
 	}
 	defer tx.Rollback()
-	projects, err := listProjects(ctx, tx, time.Now().Add(-documentPromotionDuration).UnixNano())
+	projects, err := store.listProjects(ctx, tx, time.Now().Add(-documentPromotionDuration).UnixNano())
 	if err != nil {
 		return nil, nil, "", err
 	}

@@ -132,10 +132,42 @@ type Project struct {
 	Readme        string
 	Specification string
 	ColorPreset   string
+	Repository    string
+	PortableRoot  string
 }
 
 func (project Project) Name() string {
 	return filepath.Base(project.Root)
+}
+
+func (project Project) Identifier() string {
+	if project.Repository != "" {
+		return project.Repository
+	}
+	return project.PortableRoot
+}
+
+type ProjectListing struct {
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	Root       string `json:"root,omitempty"`
+	Repository string `json:"repository,omitempty"`
+	Archived   bool   `json:"archived"`
+	UpdatedAt  int64  `json:"updated_at"`
+	Todo       int    `json:"todo"`
+	Doing      int    `json:"doing"`
+	Blocked    int    `json:"blocked"`
+	Done       int    `json:"done"`
+	Rejected   int    `json:"rejected"`
+	Tickets    []Task `json:"tickets,omitempty"`
+}
+
+type ProjectContext struct {
+	ID         int64
+	Directory  string
+	GitRoot    string
+	CommonRoot string
+	Repository string
 }
 
 type Task struct {
@@ -148,6 +180,7 @@ type Task struct {
 	Omitted     bool   `json:"omitted"`
 	ActiveNanos *int64 `json:"-"`
 	StartedAt   *int64 `json:"-"`
+	UpdatedAt   int64  `json:"-"`
 }
 
 func (task Task) DisplayProgress() *int {

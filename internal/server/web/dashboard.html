@@ -24,7 +24,7 @@
     <nav id="navigation" class="navigation" aria-label="Projects">
       <a href="/" {{if eq .Section "projects"}}aria-current="page"{{end}}>Projects</a>
       {{range .Projects}}
-        <a href="/projects/{{.ID}}" title="{{.Root}}" {{if $.Selected}}{{if eq $.Selected.ID .ID}}aria-current="page"{{end}}{{end}}>{{.Name}}</a>
+        <a href="/projects/{{.ID}}" title="{{.Identifier}}" {{if $.Selected}}{{if eq $.Selected.ID .ID}}aria-current="page"{{end}}{{end}}>{{.Name}}</a>
       {{end}}
     </nav>
     <main id="content" tabindex="-1">
@@ -38,7 +38,7 @@
                 <button id="archive-project-button" class="archive-button" type="button" aria-label="Archive project" title="Archive project" data-archive-confirm data-archive-kind="project" data-archive-name="{{.Title}}" data-archive-action="/projects/{{.Selected.ID}}/archive">{{template "archive-icon"}}</button>
               {{end}}
             </div>
-            <p class="path">{{.Selected.Root}}</p>
+            <p class="path">{{.Selected.Identifier}}</p>
           </div>
         </header>
         {{if .Documents}}
@@ -91,6 +91,11 @@
             {{range .Activity.Options}}<button id="activity-range-{{.Key}}" name="range" value="{{.Key}}" aria-pressed="{{.Selected}}"{{if .Disabled}} disabled{{end}}>{{.Key}}</button>{{end}}
           </form>
         </header>
+        {{if .Monitors}}
+          <p class="monitor-presence"><span class="monitor-dot" aria-hidden="true"></span>Monitoring
+            {{range $i, $name := .Monitors}}{{if $i}}, {{end}}{{$name}}{{end}}
+          </p>
+        {{end}}
         {{if .Projects}}{{template "project-list" .}}
         {{else}}<p class="empty-state">Projects appear here after the first ticket report or document upload.</p>{{end}}
       {{end}}
@@ -142,7 +147,7 @@
               {{if .Readme}}<a class="project-document-shortcut" href="{{documentPath .ID .Readme}}">{{template "document-icon"}} README</a>{{end}}
               {{if .Specification}}<a class="project-document-shortcut" href="{{documentPath .ID .Specification}}">{{template "document-icon"}} SPEC</a>{{end}}
             </div>
-            <p class="path">{{.Root}}</p>
+            <p class="path">{{.Identifier}}</p>
           </div>
           <dl class="status-counts">
             <div><dt>Blocked</dt><dd>{{.Blocked}}</dd></div>
@@ -175,7 +180,7 @@
         {{range .Rows}}
           {{$projectColor := .Project.Color}}
           <tr data-project-id="{{.Project.ID}}">
-            <th scope="row" aria-label="{{.Project.Name}}" title="{{.Project.Root}}">{{template "project-pixel" .Project}}</th>
+            <th scope="row" aria-label="{{.Project.Name}}" title="{{.Project.Identifier}}">{{template "project-pixel" .Project}}</th>
             {{range .Cells}}
               <td data-day="{{.Date}}" title="{{.Label}}" aria-label="{{.Label}}">
                 <div class="ticket-pixels" aria-hidden="true">

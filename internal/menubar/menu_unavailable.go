@@ -6,6 +6,6 @@ import "context"
 
 const Available = false
 
-func Run(context.Context, string) error {
+func Run(context.Context, Settings, bool, func(Settings) error, func(string)) error {
 	return ErrUnavailable
 }

@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"harness.engineering/internal/local"
+	"harness.engineering/internal/menubar"
 	"harness.engineering/internal/model"
 	"harness.engineering/internal/version"
 	"harness.engineering/internal/wire"
@@ -25,15 +26,15 @@ import (
 const usage = `Usage: backlog <command> [options]
 
 Commands:
-  setup          Set up the background service and harness reporting skill
+  setup          Configure a client or review the local server setup
   serve          Run the dashboard and reporting server
   status         Check Backlog setup, processes, and server health
   ps             Alias for status
   restart        Print the command to restart or start the launchd service
-  menu           Show the Backlog menu in the macOS menu bar
-  task           Report a single task update
+%s  task           Report a single task update
   snapshot       Report all currently known project tasks as a JSON array
-  ls             List tickets for the current project
+  ls             List projects and their tickets
+  project        Show project commands
   update         Edit one or more existing tickets
   block          Mark tickets blocked
   todo           Mark tickets to do
@@ -50,17 +51,25 @@ type App struct {
 	ReportingSkill []byte
 }
 
+func writeUsage(w io.Writer) {
+	menu := ""
+	if menubar.Available {
+		menu = "  menu           Run the Backlog client in the macOS menu bar\n"
+	}
+	fmt.Fprintf(w, usage, menu)
+}
+
 func (app App) Run(ctx context.Context, args []string, input io.Reader, out, diagnostics io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprint(diagnostics, usage)
+		writeUsage(diagnostics)
 		return 2
 	}
 	var err error
 	switch args[0] {
 	case "help", "-help", "-h":
-		fmt.Fprint(out, usage)
+		writeUsage(out)
 	case "setup":
-		err = setup(ctx, args[1:], app.ReportingSkill, input, out, diagnostics)
+		err = setup(ctx, args[1:], input, out, diagnostics)
 	case "serve":
 		err = serve(ctx, args[1:], out, diagnostics)
 	case "status", "ps":
@@ -73,6 +82,8 @@ func (app App) Run(ctx context.Context, args []string, input io.Reader, out, dia
 		err = sendReport(ctx, args[0], args[1:], input, out, diagnostics)
 	case "ls":
 		err = listTickets(ctx, args[1:], out, diagnostics)
+	case "project":
+		err = projectCommand(ctx, args[1:], out, diagnostics)
 	case "update", "block", "todo", "doing", "done":
 		err = updateTickets(ctx, args[0], args[1:], out, diagnostics)
 	case "doc":

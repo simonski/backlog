@@ -62,7 +62,7 @@ func restartCommand(registered []string, domain string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return shellArgument(executable) + " setup", nil
+	return shellArgument(executable) + " setup -start", nil
 }
 
 func shellArgument(value string) string {

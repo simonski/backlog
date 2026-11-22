@@ -129,3 +129,12 @@ timestamp_utc,tool,duration_seconds,outcome
 2026-11-22T08:12:46.545Z,git diff --check,0.000,passed
 2026-11-22T08:12:46.545Z,launchd upgrade,0.000,passed
 2026-11-22T08:12:46.545Z,live verification,0.307,passed
+2026-11-22T08:42:18Z,go test ./...,1.636,passed
+2026-11-22T08:42:18Z,go test -race CLI server storage,5.052,passed
+2026-11-22T08:42:18Z,Homebrew HEAD source build,7.000,passed
+2026-11-22T08:42:18Z,macOS menu heartbeat interval smoke,10.000,passed
+2026-11-22T08:42:18Z,headless setup and Linux build,4.913,passed
+2026-11-22T08:42:18Z,skill validation and formula syntax,0.730,passed
+2026-11-22T08:52:45Z,go test ./...,1.584,passed
+2026-11-22T08:52:45Z,native AppKit menu and Settings smoke,0.825,passed
+2026-11-22T08:52:45Z,macOS menu replacement and live heartbeat,1.001,passed

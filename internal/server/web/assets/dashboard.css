@@ -228,3 +228,18 @@ progress { width: 100%; height: .45rem; accent-color: var(--teal); }
   .page-heading { margin-bottom: 1rem; }
   .project-card { padding: .9rem; }
 }
+
+.monitor-presence {
+  color: var(--muted);
+  font-size: .85rem;
+  margin: -.65rem 0 .8rem;
+  overflow-wrap: anywhere;
+}
+.monitor-dot {
+  display: inline-block;
+  width: .55rem;
+  height: .55rem;
+  margin-right: .3rem;
+  border-radius: 50%;
+  background: #3caa71;
+}

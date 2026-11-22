@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	Client         = "0.15.0"
-	Server         = "0.15.0"
+	Client         = "0.16.0"
+	Server         = "0.16.0"
 	Protocol       = "1.0.0"
 	LegacyProtocol = 1
 	clientUpgrade  = "upgrade the client (run brew upgrade simonski/backlog/backlog or run make install from an updated checkout)"

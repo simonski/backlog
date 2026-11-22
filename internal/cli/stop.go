@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -16,6 +17,71 @@ import (
 	"harness.engineering/internal/local"
 	"harness.engineering/internal/wire"
 )
+
+func (app App) stop(ctx context.Context, args []string, out, diagnostics io.Writer) error {
+	flags := newFlags("stop", diagnostics, "")
+	if err := parseFlags(flags, args); err != nil {
+		return err
+	}
+	instance, err := app.runtime.control(ctx, http.MethodGet, "/status")
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
+		return errors.New("no Backlog server is ready under this user on this host")
+	}
+	if err != nil {
+		return fmt.Errorf("find the local Backlog server: %w", err)
+	}
+	return app.runtime.stopInstance(ctx, instance, out)
+}
+
+func (runtime serverRuntime) stopInstance(ctx context.Context, instance runningServer, out io.Writer) error {
+	lookup, cancel := context.WithTimeout(ctx, 3*time.Second)
+	target, err := launchAgentForPID(lookup, instance.PID)
+	cancel()
+	if err != nil {
+		return err
+	}
+	if target != "" {
+		if output, err := runLaunchctl(ctx, "bootout", target); err != nil {
+			return fmt.Errorf("stop launchd service %s: %w (%s)", target, err, strings.TrimSpace(string(output)))
+		}
+	} else if _, err := runtime.control(ctx, http.MethodPost, "/stop?pid="+strconv.Itoa(instance.PID)); err != nil {
+		return fmt.Errorf("request local shutdown: %w", err)
+	}
+	wait, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		lock, err := runtime.lock(false)
+		if err == nil {
+			lock.Close()
+			break
+		}
+		if current, err := runtime.control(wait, http.MethodGet, "/status"); err == nil && current.PID != instance.PID {
+			break
+		}
+		select {
+		case <-wait.Done():
+			return fmt.Errorf("waiting for Backlog to stop: %w", wait.Err())
+		case <-ticker.C:
+		}
+	}
+	_, err = fmt.Fprintf(out, "Stopped Backlog at http://%s (PID %d).\n", instance.Address, instance.PID)
+	return err
+}
+
+func launchAgentForPID(ctx context.Context, pid int) (string, error) {
+	for _, target := range launchAgentTargets() {
+		output, err := runLaunchctl(ctx, "print", target)
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		if err == nil && launchdField(string(output), "pid") == strconv.Itoa(pid) {
+			return target, nil
+		}
+	}
+	return "", nil
+}
 
 func stopServer(ctx context.Context, address string, out, diagnostics io.Writer) error {
 	address, err := loopbackBindAddress(address)

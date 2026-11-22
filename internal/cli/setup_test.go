@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"harness.engineering/internal/storage"
 	"harness.engineering/internal/version"
 )
 
@@ -24,9 +26,12 @@ func TestSetupClientPersistsOnlyTheDashboardURL(t *testing.T) {
 	t.Setenv("BACKLOG_URL", "")
 	const dashboard = "https://backlog.example.ts.net/"
 	var out, diagnostics bytes.Buffer
-	answers := "client\nfile:///etc/hosts\n" + dashboard + "\n\n"
-	code := (App{ReportingSkill: []byte("embedded skill")}).Run(t.Context(), []string{"setup"}, strings.NewReader(answers), &out, &diagnostics)
-	if code != 0 || !strings.HasPrefix(out.String(), "Set up Backlog as a client or server?") ||
+	answers := "client\nfile:///etc/hosts\n" + dashboard + "\n\nno\n"
+	app := isolatedServerApp(t)
+	app.ReportingSkill = []byte("embedded skill")
+	code := app.Run(t.Context(), []string{"setup", "-addr", "127.0.0.1:0"}, strings.NewReader(answers), &out, &diagnostics)
+	if code != 0 || !strings.HasPrefix(out.String(), "Current setup\n") ||
+		!strings.Contains(out.String(), "Set up Backlog as a client or server?") ||
 		!strings.Contains(out.String(), "Saved BACKLOG_URL="+dashboard) || diagnostics.Len() != 0 {
 		t.Fatalf("exit=%d stdout=%q stderr=%q", code, &out, &diagnostics)
 	}
@@ -56,7 +61,7 @@ func TestSetupServerReviewsWithoutInstalling(t *testing.T) {
 	defer service.Close()
 	var out, diagnostics bytes.Buffer
 	args := []string{"setup", "-addr", strings.TrimPrefix(service.URL, "http://")}
-	code := (App{}).Run(t.Context(), args, strings.NewReader("server\n"), &out, &diagnostics)
+	code := isolatedServerApp(t).Run(t.Context(), args, strings.NewReader("server\n\nno\n"), &out, &diagnostics)
 	if code != 0 || !strings.Contains(out.String(), "Backlog server:  running") ||
 		!strings.Contains(out.String(), "Advice:") || diagnostics.Len() != 0 {
 		t.Fatalf("exit=%d stdout=%q stderr=%q", code, &out, &diagnostics)
@@ -68,6 +73,68 @@ func TestSetupServerReviewsWithoutInstalling(t *testing.T) {
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("server review saved client settings: %v", err)
 	}
+	db, err := databasePath("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(db); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("server setup created a database after declining: %v", err)
+	}
+}
+
+func TestSetupInstallsSkillAndInitializesDatabase(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("HOME", config)
+	t.Setenv("XDG_CONFIG_HOME", config)
+	app := isolatedServerApp(t)
+	app.ReportingSkill = []byte("embedded skill")
+	directory := filepath.Join(config, "skills")
+	db := filepath.Join(config, "selected.db")
+	var out, diagnostics bytes.Buffer
+	run := func(args []string, input string) string {
+		t.Helper()
+		out.Reset()
+		diagnostics.Reset()
+		if code := app.Run(t.Context(), args, strings.NewReader(input), &out, &diagnostics); code != 0 {
+			t.Fatalf("exit=%d stdout=%q stderr=%q", code, &out, &diagnostics)
+		}
+		return out.String()
+	}
+	client := []string{"setup", "-addr", "127.0.0.1:0", "-dir", directory}
+	run(client, "client\nhttp://localhost:15000/\n\ny\n")
+	skill, err := skillPath(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contents, err := os.ReadFile(skill); err != nil || !bytes.Equal(contents, app.ReportingSkill) {
+		t.Fatalf("installed skill = %q (%v)", contents, err)
+	}
+	if err := os.WriteFile(skill, []byte("custom skill"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if output := run(client, "client\n\n\ny\n"); !strings.Contains(output, "Preserved existing reporting skill") {
+		t.Fatalf("missing preservation notice: %s", output)
+	}
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	listener.Close()
+	server := []string{"setup", "-addr", address, "-db", db}
+	const dashboard = "https://backlog.example.ts.net/"
+	run(server, "server\n"+dashboard+"\ny\n")
+	if ready, err := storage.Initialized(t.Context(), db); err != nil || !ready {
+		t.Fatalf("database ready=%t (%v)", ready, err)
+	}
+	if settings, err := readServerSettings(); err != nil || settings.DashboardURL != dashboard || settings.Database != db {
+		t.Fatalf("server settings=%+v (%v)", settings, err)
+	}
+	if output := run(server, "server\n\n"); strings.Contains(output, "Initialize the database?") {
+		t.Fatalf("prompted for an existing database: %s", output)
+	}
+	run([]string{"initdb"}, "")
 }
 
 func TestStartLaunchAgentRetriesAndReusesConfiguration(t *testing.T) {

@@ -41,20 +41,24 @@ func ensureSkill(directory string, contents []byte) (string, bool, error) {
 	if len(contents) == 0 {
 		return "", false, errors.New("embedded reporting skill is unavailable")
 	}
-	if directory == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", false, err
-		}
-		directory = filepath.Join(home, ".agents", "skills")
-	}
-	path, err := filepath.Abs(filepath.Join(directory, "backlog", "SKILL.md"))
+	path, err := skillPath(directory)
 	if err != nil {
 		return "", false, err
 	}
 	installed, err := installFile(path, contents)
 	if errors.Is(err, os.ErrExist) {
-		err = fmt.Errorf("a different skill already exists at %s", path)
+		err = fmt.Errorf("a different skill already exists at %s: %w", path, err)
 	}
 	return path, installed, err
+}
+
+func skillPath(directory string) (string, error) {
+	if directory == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		directory = filepath.Join(home, ".agents", "skills")
+	}
+	return filepath.Abs(filepath.Join(directory, "backlog", "SKILL.md"))
 }

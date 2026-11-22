@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -31,7 +33,7 @@ type statusReport struct {
 	Advice          string `json:"advice,omitempty"`
 }
 
-func showStatus(ctx context.Context, command string, args []string, out, diagnostics io.Writer) error {
+func (app App) showStatus(ctx context.Context, command string, args []string, out, diagnostics io.Writer) error {
 	flags := newFlags(command, diagnostics, " [options]")
 	asJSON := flags.Bool("json", false, "print indented JSON")
 	var address string
@@ -42,10 +44,25 @@ func showStatus(ctx context.Context, command string, args []string, out, diagnos
 	if err := resolveAddress(); err != nil {
 		return err
 	}
+	if !hasAddressOverride(flags) {
+		if instance, err := app.runtime.control(ctx, http.MethodGet, "/status"); err == nil {
+			if probe, err := loopbackBindAddress(instance.Address); err == nil {
+				address = probe
+			}
+		}
+	}
 	if err := local.ValidateAddress(address); err != nil {
 		return err
 	}
-	url, err := dashboardURL("http://" + address)
+	settings, err := readServerSettings()
+	if err != nil {
+		return fmt.Errorf("read server settings: %w", err)
+	}
+	fallback := settings.DashboardURL
+	if fallback == "" {
+		fallback = "http://" + address
+	}
+	url, err := dashboardURL(fallback)
 	if err != nil {
 		return fmt.Errorf("read BACKLOG_URL (%w)", err)
 	}
@@ -94,6 +111,9 @@ func statusAdvice(report statusReport) string {
 	running := report.ServerVersion
 	if running == "" {
 		if report.Port == "not listening" {
+			if runtime.GOOS != "darwin" {
+				return "Run backlog serve or backlog serve -d on the server host."
+			}
 			return "Run backlog restart to see how to start the launchd service on macOS."
 		}
 		return ""

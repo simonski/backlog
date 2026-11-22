@@ -70,19 +70,23 @@ func TestShutdownRequiresLocalSameOriginRequest(t *testing.T) {
 	stops := 0
 	handler := HandlerWithShutdown(nil, "test", TailscaleArchiveAccess{}, func() { stops++ })
 	for _, tc := range []struct {
-		host, peer, origin string
-		status             int
+		host, peer, origin, forwarded string
+		status                        int
 	}{
-		{"127.0.0.1", "100.75.0.2:1234", "", http.StatusForbidden},
-		{"mini.example.ts.net", "127.0.0.1:1234", "", http.StatusForbidden},
-		{"127.0.0.1", "127.0.0.1:1234", "https://other.example.com", http.StatusForbidden},
-		{"127.0.0.1", "127.0.0.1:1234", "", http.StatusOK},
+		{"127.0.0.1", "100.75.0.2:1234", "", "", http.StatusForbidden},
+		{"mini.example.ts.net", "127.0.0.1:1234", "", "", http.StatusForbidden},
+		{"127.0.0.1", "127.0.0.1:1234", "https://other.example.com", "", http.StatusForbidden},
+		{"127.0.0.1", "127.0.0.1:1234", "", "mini.example.ts.net", http.StatusForbidden},
+		{"127.0.0.1", "127.0.0.1:1234", "", "", http.StatusOK},
 	} {
 		request := httptest.NewRequest(http.MethodPost, "http://"+tc.host+"/api/stop", strings.NewReader("{}"))
 		request.RemoteAddr = tc.peer
 		request.Header.Set("Content-Type", "application/json")
 		if tc.origin != "" {
 			request.Header.Set("Origin", tc.origin)
+		}
+		if tc.forwarded != "" {
+			request.Header.Set("X-Forwarded-Host", tc.forwarded)
 		}
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)

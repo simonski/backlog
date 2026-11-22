@@ -62,7 +62,7 @@ func HandlerWithShutdown(store *storage.Store, buildID string, access TailscaleA
 	mux.Handle("GET /favicon.ico", static)
 	mux.HandleFunc("GET /api/version", app.version)
 	if shutdown != nil {
-		mux.HandleFunc("POST /api/stop", requireAccess(localRequest, func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("POST /api/stop", requireAccess(localStopRequest, func(w http.ResponseWriter, r *http.Request) {
 			if !readJSONRequest(w, r, &struct{}{}) {
 				return
 			}
@@ -110,6 +110,18 @@ func dashboardHost(host string) bool {
 
 func localRequest(r *http.Request) bool {
 	return loopbackPeer(r) && local.IsLoopback(requestHost(r))
+}
+
+func localStopRequest(r *http.Request) bool {
+	if !localRequest(r) {
+		return false
+	}
+	for _, header := range []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "Via"} {
+		if _, present := r.Header[http.CanonicalHeaderKey(header)]; present {
+			return false
+		}
+	}
+	return true
 }
 
 func (app server) version(w http.ResponseWriter, _ *http.Request) {

@@ -62,15 +62,25 @@ Pin stable installs to a tagged release and its source revision. Build the same 
 | --- | --- |
 | `"$TOOLNAME" setup` | Show the current setup, then prompt for client or server configuration. |
 | `"$TOOLNAME" initdb` | For database-backed projects, create the database if needed and apply pending schema migrations. Use the same database configuration and migration code as `serve`. Repeated runs preserve existing data. Exit successfully once the schema is ready. |
-| `"$TOOLNAME" serve` | Run the server in the foreground using the configured bind address, port, and storage. Report startup failures and shut down gracefully on termination. Document whether startup applies migrations or requires `initdb` first. |
-| `"$TOOLNAME" setup -start` | Install and start the background server service where supported. Reuse the same service registration on repeated runs. |
+| `"$TOOLNAME" serve [-p N]` | Run the server in the foreground. Use `DEFAULT_PORT` unless `-p N` is supplied. |
+| `"$TOOLNAME" serve -d [-p N]` | Start the server in the background and return to the prompt once startup succeeds. Use `DEFAULT_PORT` unless `-p N` is supplied. |
+| `"$TOOLNAME" stop` | Gracefully stop the running server, whether it was started in the foreground or background. Run this command on the server host. |
+| `"$TOOLNAME" setup -start` | Install and start the background server service where supported. Reuse the existing registration when starting a stopped service. |
 | `"$TOOLNAME" menu` | Install or reuse the native macOS menu bar registration, start the client in the current user’s GUI session, and return to the prompt. Provide `"$TOOLNAME" menu -foreground` for debugging. |
 | `"$TOOLNAME" version` | Show the installed binary’s client, network protocol, and bundled server versions. |
 | `"$TOOLNAME" status` | Report the resolved endpoint, the running server’s advertised application and network protocol versions, and background service state where supported. |
 
-Use single-hyphen flags. Use `DEFAULT_PORT` as the default server and local client port. Use `-p N` to override it. For `serve`, it selects the listening port. For local client commands, it selects the port to contact. For `setup -start`, persist the selected port in the service configuration. Document the bind address and how port overrides interact with configured server URLs.
+Use single-hyphen flags. `-p` requires a numeric port as the next argument. For background startup, accept both `serve -d -p N` and `serve -p N -d`. Local client commands use `DEFAULT_PORT` unless `-p N` selects another port to contact. For `setup -start`, persist the selected port in the service configuration. Document the bind address and how port overrides interact with configured server URLs.
 
 Print human-readable output by default. Where structured output is supported, emit indented JSON on stdout only when `-json` is passed. Send diagnostics to stderr and return a nonzero exit status on failure.
+
+## Server lifecycle
+
+Allow one running server instance of the tool per host. Both forms of `serve` must fail with a nonzero exit status if an instance is already running, even when the requested port differs. Enforce the same rule when concurrent starts are attempted and when `setup -start` launches the service. Report a port held by another application as a bind error.
+
+Use the configured bind address and storage in both modes. Report startup failures to the invoking terminal, including when starting in the background. Document whether startup applies database migrations or requires `initdb` first.
+
+`stop` locates the local instance even when it was started with a custom port. Require a host-local control channel and reject shutdown requests received over remote connections. Drain in-flight work before exiting. For a supervised background instance, stop it through the supervisor so it stays stopped.
 
 ## Setup wizard
 
@@ -106,6 +116,7 @@ Expose the running server’s application version and network protocol version a
 - Warn on stderr about major or minor differences and include the versions involved. Patch-only differences stay quiet. Keep JSON stdout valid.
 - When the client is older, give the documented upgrade command or release location. When the server is older, identify the server as the component to upgrade. A compatible command can still run after the warning. If there is no mutually supported wire protocol, fail before running the requested operation and explain how to restore compatibility.
 - If a server-backed command fails and the server version could not be retrieved, report that it is unavailable.
+- If the version endpoint is unavailable, document whether clients attempt the operation for compatibility with older servers. Reject a known incompatible protocol in either case.
 
 ## Server deployment profiles
 
@@ -123,7 +134,7 @@ Keep the root `README.md` concise and runnable from a fresh install. Cover four 
 
 1. **Install.** Give the Homebrew tap and install commands and a source-build alternative.
 2. **Setup.** Show `"$TOOLNAME" setup`. Explain the initial summary, the `TOOL_URL` prompt for both roles, the optional client skill installation, and when server setup offers database initialization. Document `"$TOOLNAME" initdb` for direct database initialization.
-3. **Run as server.** For each deployment profile, show the startup command, how to install the background service where applicable, any proxy configuration, the resulting URL, and one way to verify it is serving.
+3. **Run as server.** Show `"$TOOLNAME" serve`, the `-p N` and `-d` options, and `"$TOOLNAME" stop` from the server host. For each deployment profile, show how to install the background service where applicable, configure the proxy, and verify the resulting URL.
 4. **Run as client.** Show how to check connectivity from the CLI and install and start the menu bar client where supported. Document sign-in requirements and how to upgrade the client after a version warning.
 
 Link to detailed service operations and deployment instructions where needed.

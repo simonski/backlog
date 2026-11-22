@@ -19,7 +19,7 @@ func showRestart(ctx context.Context, args []string, out, diagnostics io.Writer)
 	}
 	targets := launchAgentTargets()
 	if len(targets) == 0 {
-		return errors.New("launchd restart advice is available on macOS. Restart Backlog through its supervisor or use backlog serve -stop followed by backlog serve")
+		return errors.New("launchd restart advice is available on macOS. Use backlog stop followed by backlog serve, or restart it through your supervisor")
 	}
 	lookup, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()

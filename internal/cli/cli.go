@@ -26,8 +26,10 @@ import (
 const usage = `Usage: backlog <command> [options]
 
 Commands:
-  setup          Configure a client or review the local server setup
-  serve          Run the dashboard and reporting server
+  setup          Review and configure a client or server
+  initdb         Initialize or migrate the local database
+  serve          Run the server in the foreground or use -d for the background
+  stop           Stop the server on this host
   status         Check Backlog setup, processes, and server health
   ps             Alias for status
   restart        Print the command to restart or start the launchd service
@@ -50,6 +52,7 @@ Run backlog <command> -help for command options.
 
 type App struct {
 	ReportingSkill []byte
+	runtime        serverRuntime
 }
 
 func writeUsage(w io.Writer) {
@@ -70,11 +73,15 @@ func (app App) Run(ctx context.Context, args []string, input io.Reader, out, dia
 	case "help", "-help", "-h":
 		writeUsage(out)
 	case "setup":
-		err = setup(ctx, args[1:], input, out, diagnostics)
+		err = app.setup(ctx, args[1:], input, out, diagnostics)
+	case "initdb":
+		err = initDB(ctx, args[1:], out, diagnostics)
 	case "serve":
-		err = serve(ctx, args[1:], out, diagnostics)
+		err = app.serve(ctx, args[1:], out, diagnostics)
+	case "stop":
+		err = app.stop(ctx, args[1:], out, diagnostics)
 	case "status", "ps":
-		err = showStatus(ctx, args[0], args[1:], out, diagnostics)
+		err = app.showStatus(ctx, args[0], args[1:], out, diagnostics)
 	case "restart":
 		err = showRestart(ctx, args[1:], out, diagnostics)
 	case "upgrade":
@@ -143,6 +150,23 @@ func newFlags(name string, diagnostics io.Writer, example string) *flag.FlagSet 
 }
 
 func parseFlags(flags *flag.FlagSet, args []string) error {
+	if flags.Lookup("p") != nil {
+		for i := 0; i < len(args); i++ {
+			arg := args[i]
+			if arg == "--" || !strings.HasPrefix(arg, "-") {
+				break
+			}
+			name, _, inline := strings.Cut(strings.TrimLeft(arg, "-"), "=")
+			if name == "p" && inline {
+				return errors.New("use -p followed by a numeric port as a separate argument")
+			}
+			if option := flags.Lookup(name); option != nil && !inline {
+				if value, ok := option.Value.(interface{ IsBoolFlag() bool }); !ok || !value.IsBoolFlag() {
+					i++
+				}
+			}
+		}
+	}
 	if err := flags.Parse(args); err != nil {
 		return err
 	}

@@ -133,35 +133,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	}
 	// Serialize transactions on this server so every report sees the prior commit.
 	db.SetMaxOpenConns(1)
-	if _, err := db.ExecContext(ctx, schema); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if _, err := db.ExecContext(ctx, `
-		INSERT INTO task_completions (project_id, task_id)
-		SELECT project_id, id FROM tasks WHERE status = 'done'
-		UNION SELECT project_id, task_id FROM daily_task_activity WHERE status = 'done'
-		ON CONFLICT (project_id, task_id) DO NOTHING
-	`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if _, err := db.ExecContext(ctx, `
-		INSERT INTO task_timing (project_id, task_id, started_at)
-	SELECT t.project_id, t.id, ? FROM tasks t WHERE t.status = 'doing' AND t.omitted = 0
-	AND NOT EXISTS (SELECT 1 FROM archived_tasks ar WHERE ar.project_id = t.project_id AND ar.task_id = t.id)
-		ON CONFLICT (project_id, task_id) DO NOTHING
-	`, time.Now().UnixNano()); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if _, err := db.ExecContext(ctx, `
-		INSERT INTO task_updates (project_id, task_id, updated_at)
-		SELECT a.project_id, a.task_id, unixepoch(MAX(a.day), 'utc') * 1000000000
-		FROM daily_task_activity a LEFT JOIN task_updates u ON u.project_id = a.project_id AND u.task_id = a.task_id
-		WHERE u.task_id IS NULL GROUP BY a.project_id, a.task_id
-		ON CONFLICT (project_id, task_id) DO NOTHING
-	`); err != nil {
+	if err := initialize(ctx, db); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -170,6 +142,62 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		home = canonical
 	}
 	return &Store{db: db, home: home}, nil
+}
+
+func initialize(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, schema); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO task_completions (project_id, task_id)
+		SELECT project_id, id FROM tasks WHERE status = 'done'
+		UNION SELECT project_id, task_id FROM daily_task_activity WHERE status = 'done'
+		ON CONFLICT (project_id, task_id) DO NOTHING
+	`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO task_timing (project_id, task_id, started_at)
+	SELECT t.project_id, t.id, ? FROM tasks t WHERE t.status = 'doing' AND t.omitted = 0
+	AND NOT EXISTS (SELECT 1 FROM archived_tasks ar WHERE ar.project_id = t.project_id AND ar.task_id = t.id)
+		ON CONFLICT (project_id, task_id) DO NOTHING
+	`, time.Now().UnixNano()); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO task_updates (project_id, task_id, updated_at)
+		SELECT a.project_id, a.task_id, unixepoch(MAX(a.day), 'utc') * 1000000000
+		FROM daily_task_activity a LEFT JOIN task_updates u ON u.project_id = a.project_id AND u.task_id = a.task_id
+		WHERE u.task_id IS NULL GROUP BY a.project_id, a.task_id
+		ON CONFLICT (project_id, task_id) DO NOTHING
+	`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// Initialized checks for the core Backlog schema without creating files or running migrations.
+func Initialized(ctx context.Context, path string) (bool, error) {
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	dsn := url.URL{Scheme: "file", Path: filepath.ToSlash(path), RawQuery: "mode=ro&immutable=1"}
+	db, err := sql.Open("sqlite", dsn.String())
+	if err != nil {
+		return false, err
+	}
+	defer db.Close()
+	var ready bool
+	err = db.QueryRowContext(ctx, `SELECT count(*) = 2 FROM sqlite_schema WHERE type = 'table' AND name IN ('projects', 'tasks')`).Scan(&ready)
+	return ready, err
 }
 
 func (store *Store) Close() error { return store.db.Close() }

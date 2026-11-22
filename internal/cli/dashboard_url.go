@@ -69,6 +69,40 @@ func parseDashboardURL(value string) (*url.URL, error) {
 }
 
 func saveClientSettings(path string, settings menubar.Settings) error {
+	return saveSettings(path, settings)
+}
+
+type serverSettings struct {
+	DashboardURL string `json:"dashboard_url"`
+	Database     string `json:"database"`
+}
+
+func serverSettingsPath() (string, error) {
+	directory, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(directory, "harness-engineering", "backlog-server.json"), nil
+}
+
+func readServerSettings() (serverSettings, error) {
+	var settings serverSettings
+	path, err := serverSettingsPath()
+	if err != nil {
+		return settings, err
+	}
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return settings, nil
+	}
+	if err != nil {
+		return settings, err
+	}
+	err = json.Unmarshal(data, &settings)
+	return settings, err
+}
+
+func saveSettings(path string, settings any) error {
 	content, err := json.Marshal(settings)
 	if err != nil {
 		return err

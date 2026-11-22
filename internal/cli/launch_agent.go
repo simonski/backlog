@@ -8,21 +8,31 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 const launchAgentLabel = "local.backlog"
 
-func setupLaunchAgent(ctx context.Context, address, database string, out io.Writer) error {
+func (runtime serverRuntime) setupLaunchAgent(ctx context.Context, address, database string, out io.Writer) error {
+	lock, err := runtime.lock(false)
+	if err != nil {
+		return err
+	}
+	lock.Close()
 	host, port, splitErr := net.SplitHostPort(address)
 	number, portErr := strconv.ParseUint(port, 10, 16)
 	if splitErr != nil || portErr != nil || number == 0 {
 		return fmt.Errorf("background service requires a fixed host:port address, got %q", address)
+	}
+	if report := probeBindAddress(ctx, address); report.Port == "listening" {
+		return bindConflict(address, report, syscall.EADDRINUSE)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -54,10 +64,17 @@ func setupLaunchAgent(ctx context.Context, address, database string, out io.Writ
 		return err
 	}
 	if alreadyLoaded {
-		fmt.Fprintln(out, "Background service is already registered.")
-	} else {
-		fmt.Fprintln(out, "Registered the background service and requested startup.")
+		return errServerRunning
 	}
+	target := domain + "/" + launchAgentLabel
+	if err := runtime.waitForLaunchAgent(ctx, target); err != nil {
+		output, stopErr := runLaunchctl(context.WithoutCancel(ctx), "bootout", target)
+		if stopErr != nil {
+			err = errors.Join(err, fmt.Errorf("unload %s: %w (%s)", target, stopErr, strings.TrimSpace(string(output))))
+		}
+		return fmt.Errorf("start the background service (see %s): %w", log, err)
+	}
+	fmt.Fprintln(out, "Registered the background service. Backlog is ready.")
 	if host == "" || host == "0.0.0.0" {
 		host = "127.0.0.1"
 	} else if host == "::" {
@@ -66,6 +83,25 @@ func setupLaunchAgent(ctx context.Context, address, database string, out io.Writ
 	fmt.Fprintf(out, "Dashboard: http://%s\nError log: %s\nAccess log: %s\n", net.JoinHostPort(host, port), log, accessLogPath(log))
 	fmt.Fprintf(out, "Status: launchctl print %s/%s\nStop until next login: launchctl bootout %s/%s\n", domain, launchAgentLabel, domain, launchAgentLabel)
 	return nil
+}
+
+func (runtime serverRuntime) waitForLaunchAgent(ctx context.Context, target string) error {
+	wait, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if instance, err := runtime.control(wait, http.MethodGet, "/status"); err == nil {
+			if job, err := runLaunchctl(wait, "print", target); err == nil && launchdField(string(job), "pid") == strconv.Itoa(instance.PID) {
+				return nil
+			}
+		}
+		select {
+		case <-wait.Done():
+			return wait.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func startLaunchAgent(domain, plist, log, address string, args []string, launchctl func(...string) error) (bool, error) {
